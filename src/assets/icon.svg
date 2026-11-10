@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E5906D"/>
+      <stop offset="1" stop-color="#B9532F"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
+  <g stroke="#FBF3E8" stroke-width="56" stroke-linecap="round"><line x1="512.0" y1="618.0" x2="512.0" y2="490.0"/><line x1="537.0" y1="624.7" x2="587.0" y2="538.1"/><line x1="555.3" y1="643.0" x2="661.0" y2="582.0"/><line x1="562.0" y1="668.0" x2="658.0" y2="668.0"/><line x1="555.3" y1="693.0" x2="669.6" y2="759.0"/><line x1="537.0" y1="711.3" x2="589.0" y2="801.4"/><line x1="512.0" y1="718.0" x2="512.0" y2="844.0"/><line x1="487.0" y1="711.3" x2="438.0" y2="796.2"/><line x1="468.7" y1="693.0" x2="356.1" y2="758.0"/><line x1="462.0" y1="668.0" x2="360.0" y2="668.0"/><line x1="468.7" y1="643.0" x2="364.8" y2="583.0"/><line x1="487.0" y1="624.7" x2="439.0" y2="541.6"/></g>
+  <circle cx="512" cy="668" r="74" fill="#FBF3E8"/>
+  <!-- graduation cap -->
+  <path d="M352 372 L352 468 Q512 548 672 468 L672 372 Z" fill="#2A211C"/>
+  <path d="M512 176 L838 312 L512 448 L186 312 Z" fill="#2A211C" stroke="#2A211C" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M512 312 L770 360 L770 508" fill="none" stroke="#F4BE4F" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="512" cy="312" r="24" fill="#F4BE4F"/>
+  <path d="M746 500 L794 500 L806 580 L734 580 Z" fill="#F4BE4F" stroke="#F4BE4F" stroke-width="10" stroke-linejoin="round"/>
+</svg>

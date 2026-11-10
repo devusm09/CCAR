@@ -1,0 +1,2556 @@
+[
+  {
+    "id": "2.1",
+    "plain": "Claude decides which tool to call mostly by reading each tool's name and description. If two tools sound alike, or a description is one vague line, Claude will sometimes pick the wrong one. The usual fix is to write clearer descriptions that say what each tool is for and what it is not for.",
+    "analogy": "Think of a row of unlabelled light switches. You will flip the wrong one now and then until someone writes a clear label under each. Better labels fix it, not an extra switch panel.",
+    "sections": [
+      {
+        "h": "What a tool description is",
+        "body": "**Claude picks a tool mainly by reading its description, so the description is instructions for the model, not a code comment.**\n\nEvery tool you give Claude has three parts:\n\n- a `name`, such as `analyze_document`;\n- a `description`, a few sentences of plain text;\n- an `input_schema`, which describes the arguments.\n\nWhen a request arrives, Claude compares it with each description and calls the best match. A one-line description such as \"Analyses content\" gives it almost nothing to compare against.\n\nIf two tools both have thin, similar descriptions, Claude is effectively guessing. It will be right some of the time and wrong some of the time, and the errors will look random. That is the classic sign of a description problem."
+      },
+      {
+        "h": "What a good description contains",
+        "body": "**A good description answers the questions Claude would ask before calling the tool.**\n\nInclude:\n\n- **Purpose**: one clear sentence on what the tool does.\n- **Input format**: for example \"an order ID like ORD-12345\" or \"a full https:// URL\".\n- **Example requests**: \"Use for: summarise this PDF\".\n- **Edge cases**: what it returns for empty or odd input.\n- **Boundaries**: what it does *not* do, and **which similar tool to use instead**.\n\nThe last point matters most when tools overlap. A line such as \"For web search result pages, use `extract_web_results` instead\" removes the guesswork.\n\nA useful test: could a new colleague pick the right tool from the descriptions alone? If not, Claude cannot either."
+      },
+      {
+        "h": "Fixing tools that overlap",
+        "body": "**When two tools sound alike, rename and rewrite them, or split a vague tool into focused ones.**\n\nTake `analyze_content` and `analyze_document`. Both names say \"analyse\", so Claude mixes them up. Two proportionate fixes:\n\n1. **Rename and rewrite.** Rename `analyze_content` to `extract_web_results` and describe it as being about web pages only.\n2. **Split a generic tool.** Replace one do-everything tool with `extract_data_points`, `summarize_content` and `verify_claim_against_source`. Each has one job, so each description is easy to tell apart.\n\nDo **not** just delete one of the two tools. Both may be needed. Clear boundaries keep the capability and remove the confusion."
+      },
+      {
+        "h": "Check the system prompt too",
+        "body": "**Wording in the system prompt can pull Claude towards the wrong tool, even when the descriptions are good.**\n\nSuppose the system prompt says \"Always **analyse** content carefully before answering\". The word \"analyse\" echoes the tool name `analyze_content`, and Claude may lean towards it.\n\nSo if misrouting continues after you rewrite the descriptions:\n\n- search the system prompt for words that match tool names;\n- replace them with neutral wording, or name the right tool for each situation;\n- re-run the same requests that misrouted before and compare.\n\nRewriting descriptions again and again will not help while the system prompt keeps steering the other way."
+      },
+      {
+        "h": "What goes wrong in practice",
+        "body": "**The usual mistakes are fixes that are heavier than the problem.**\n\n- **Adding a routing classifier** in front of the agent. It is extra code to build and maintain, it breaks on mixed requests, and the vague descriptions are still there.\n- **Forcing one tool** with `tool_choice`. That fixes one kind of request and breaks every other kind, because Claude can no longer choose.\n- **Deleting a tool** and losing a capability you needed.\n- **Ignoring the system prompt** while polishing descriptions.\n\nThe exam rule: wrong tool selected, so improve descriptions and boundaries and check the system prompt **before** adding any routing layer."
+      }
+    ],
+    "example": {
+      "title": "Worked example: rewriting two overlapping tools",
+      "lang": "python",
+      "code": "tools = [\n    {\n        \"name\": \"extract_web_results\",\n        \"description\": (\n            \"Extracts titles, snippets and URLs from a web search results page. \"\n            \"Input: the raw HTML or text of a results page. \"\n            \"Use for: 'pull the top links from this search'. \"\n            \"Do NOT use for PDFs, uploaded files or internal documents; \"\n            \"use analyze_document for those. Returns an empty list if the page \"\n            \"contains no results.\"\n        ),\n        \"input_schema\": {\"type\": \"object\", \"required\": [\"page_text\"],\n                         \"properties\": {\"page_text\": {\"type\": \"string\"}}},\n    },\n    {\n        \"name\": \"analyze_document\",\n        \"description\": (\n            \"Analyses a single uploaded document (PDF, DOCX or plain text) \"\n            \"and returns its sections and key facts. Input: a document ID such \"\n            \"as DOC-123. Do NOT use for web search result pages; use \"\n            \"extract_web_results for those.\"\n        ),\n        \"input_schema\": {\"type\": \"object\", \"required\": [\"document_id\"],\n                         \"properties\": {\"document_id\": {\"type\": \"string\"}}},\n    },\n]",
+      "notes": [
+        "The old name `analyze_content` was renamed to `extract_web_results`, so the name alone signals web pages.",
+        "Each description states its input format, a sample request and an edge case (empty results).",
+        "Each description names the other tool as the alternative, which draws a clear boundary between them.",
+        "No classifier, no forced `tool_choice`: Claude still chooses, it just has better information."
+      ],
+      "variants": {
+        "csharp": "List<ToolUnion> tools =\n[\n    new Tool\n    {\n        Name = \"extract_web_results\",\n        Description =\n            \"Extracts titles, snippets and URLs from a web search results page. \" +\n            \"Input: the raw HTML or text of a results page. \" +\n            \"Use for: 'pull the top links from this search'. \" +\n            \"Do NOT use for PDFs, uploaded files or internal documents; \" +\n            \"use analyze_document for those. Returns an empty list if the page \" +\n            \"contains no results.\",\n        InputSchema = new() { Required = [\"page_text\"],\n            Properties = new Dictionary<string, JsonElement> {\n                [\"page_text\"] = JsonSerializer.SerializeToElement(new { type = \"string\" }) } },\n    },\n    new Tool\n    {\n        Name = \"analyze_document\",\n        Description =\n            \"Analyses a single uploaded document (PDF, DOCX or plain text) \" +\n            \"and returns its sections and key facts. Input: a document ID such \" +\n            \"as DOC-123. Do NOT use for web search result pages; use \" +\n            \"extract_web_results for those.\",\n        InputSchema = new() { Required = [\"document_id\"],\n            Properties = new Dictionary<string, JsonElement> {\n                [\"document_id\"] = JsonSerializer.SerializeToElement(new { type = \"string\" }) } },\n    },\n];",
+        "typescript": "const tools: Anthropic.Tool[] = [\n  {\n    name: \"extract_web_results\",\n    description:\n      \"Extracts titles, snippets and URLs from a web search results page. \" +\n      \"Input: the raw HTML or text of a results page. \" +\n      \"Use for: 'pull the top links from this search'. \" +\n      \"Do NOT use for PDFs, uploaded files or internal documents; \" +\n      \"use analyze_document for those. Returns an empty list if the page \" +\n      \"contains no results.\",\n    input_schema: { type: \"object\", required: [\"page_text\"],\n                    properties: { page_text: { type: \"string\" } } },\n  },\n  {\n    name: \"analyze_document\",\n    description:\n      \"Analyses a single uploaded document (PDF, DOCX or plain text) \" +\n      \"and returns its sections and key facts. Input: a document ID such \" +\n      \"as DOC-123. Do NOT use for web search result pages; use \" +\n      \"extract_web_results for those.\",\n    input_schema: { type: \"object\", required: [\"document_id\"],\n                    properties: { document_id: { type: \"string\" } } },\n  },\n];"
+      }
+    },
+    "labs": [
+      {
+        "scenario": "Multi-Agent Research System",
+        "title": "Document subagent picks the wrong analysis tool",
+        "context": "The document-analysis subagent has analyze_content and analyze_document, described only as \"Analyses content\" and \"Analyses a document\". It calls analyze_content for 35% of PDF summary requests, and some tasks legitimately need both tools in one run. The team wants the most proportionate fix.",
+        "question": "What change most reliably fixes the misrouting?",
+        "options": [
+          {
+            "text": "Add a lightweight classifier before the subagent that labels each request as web or document and passes it only the matching tool.",
+            "lang": "python",
+            "code": "# illustrative\ndef route(request):\n    label = classifier.predict(request)   # 'web' or 'document'\n    tool = \"analyze_content\" if label == \"web\" else \"analyze_document\"\n    return call_claude(request, tools=[TOOLS[tool]])",
+            "variants": {
+              "csharp": "// illustrative\nobject Route(string request)\n{\n    var label = classifier.Predict(request);   // 'web' or 'document'\n    var tool = label == \"web\" ? \"analyze_content\" : \"analyze_document\";\n    return CallClaude(request, tools: [TOOLS[tool]]);\n}",
+              "typescript": "// illustrative\nfunction route(request: string) {\n  const label = classifier.predict(request);   // 'web' or 'document'\n  const tool = label === \"web\" ? \"analyze_content\" : \"analyze_document\";\n  return callClaude(request, { tools: [TOOLS[tool]] });\n}"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "New classifier model trained on 400 labelled requests."
+              },
+              {
+                "who": "user",
+                "text": "Compare this PDF with the top web results on the same topic."
+              },
+              {
+                "who": "app",
+                "text": "Classifier outputs 'document' and passes only analyze_document."
+              },
+              {
+                "who": "claude",
+                "text": "Cannot reach web results; answers with half the comparison."
+              },
+              {
+                "who": "system",
+                "text": "Team now maintains a classifier plus two vague tool descriptions."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Extra moving parts, mixed requests break, and the vague descriptions remain.",
+            "why": "Over-engineered: the proportionate fix of clearer descriptions was never tried. The classifier also stops Claude using both tools in one mixed task."
+          },
+          {
+            "text": "Remove analyze_content and let analyze_document handle web pages too, so there is no longer any overlap for the model to resolve.",
+            "lang": "json",
+            "code": "{\n  \"name\": \"analyze_document\",\n  \"description\": \"Analyses a document or any other content.\"\n}",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Compare DOC-881 with the top results on this search page."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: analyze_document({\"document_id\": \"DOC-881\"}). Works."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: analyze_document on the search results page."
+              },
+              {
+                "who": "tool",
+                "text": "Returns one prose blob: no links, no snippets, no source URLs."
+              },
+              {
+                "who": "claude",
+                "text": "Writes a comparison with uncited web claims."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Overlap gone, but so is the web capability the task needed.",
+            "why": "Both tools are legitimately needed, so deleting one loses capability. Stating each tool's boundary in its description resolves the overlap without that cost."
+          },
+          {
+            "text": "Rename and rewrite both tools, for example extract_web_results and analyze_document, stating input formats and when to use each one instead of the other.",
+            "lang": "json",
+            "code": "{\n  \"name\": \"extract_web_results\",\n  \"description\": \"Extracts links and snippets from a web search results page. Not for PDFs or uploaded files: use analyze_document.\"\n}\n{\n  \"name\": \"analyze_document\",\n  \"description\": \"Analyses one uploaded PDF, DOCX or text file by document ID (e.g. DOC-123). Not for web result pages.\"\n}",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Summarise the key findings in DOC-881 (a PDF report)."
+              },
+              {
+                "who": "claude",
+                "text": "Reads both descriptions. Only analyze_document mentions PDFs and document IDs."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: analyze_document({\"document_id\": \"DOC-881\"})"
+              },
+              {
+                "who": "tool",
+                "text": "Returns 6 sections and 12 key facts."
+              },
+              {
+                "who": "claude",
+                "text": "Writes the summary. stop_reason: end_turn"
+              }
+            ],
+            "result": "good",
+            "verdict": "Correct tool chosen, and web requests still route to the web tool.",
+            "why": "Descriptions are the main way Claude selects tools. Clear purposes and explicit boundaries fix the overlap at its root, with no extra infrastructure."
+          },
+          {
+            "text": "Set tool_choice to force analyze_document whenever the request mentions a PDF, and leave tool_choice on auto for all other requests.",
+            "lang": "python",
+            "code": "# illustrative\nresponse = client.messages.create(\n    model=MODEL,\n    max_tokens=1024,\n    tools=tools,\n    tool_choice={\"type\": \"tool\", \"name\": \"analyze_document\"},\n    messages=messages,\n)",
+            "variants": {
+              "csharp": "// illustrative\nvar response = await client.Messages.Create(new MessageCreateParams\n{\n    Model = MODEL,\n    MaxTokens = 1024,\n    Tools = tools,\n    ToolChoice = new ToolChoiceTool { Name = \"analyze_document\" },\n    Messages = messages,\n});",
+              "typescript": "// illustrative\nconst response = await client.messages.create({\n  model: MODEL,\n  max_tokens: 1024,\n  tools: tools,\n  tool_choice: { type: \"tool\", name: \"analyze_document\" },\n  messages: messages,\n});"
+            },
+            "trace": [
+              {
+                "who": "user",
+                "text": "Summarise DOC-881."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: analyze_document (forced). Works."
+              },
+              {
+                "who": "user",
+                "text": "Now pull the top links from this search page."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: analyze_document (forced again) on a web page."
+              },
+              {
+                "who": "tool",
+                "text": "Error: input is not a document ID."
+              }
+            ],
+            "result": "bad",
+            "verdict": "PDF-only requests work; mixed and web requests break.",
+            "why": "Forcing one tool removes the model's ability to choose across varied requests, and the vague descriptions remain the root cause. On current models a forced tool_choice also returns HTTP 400."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "Similar tools confused → rewrite names, descriptions and boundaries before any routing layer."
+      },
+      {
+        "scenario": "Customer Support Resolution Agent",
+        "title": "Support agent ignores rewritten tool descriptions",
+        "context": "Last sprint the team rewrote the get_customer and lookup_order descriptions with input formats, examples and clear boundaries. Yet when a customer asks why their account was charged twice for an order, the agent still calls get_customer first in 60% of cases. The system prompt says: \"For any account question, always start with get_customer.\"",
+        "question": "What should the team change next?",
+        "options": [
+          {
+            "text": "Rewrite the system prompt rule that sends every \"account\" message to get_customer, so the tool descriptions guide the choice.",
+            "lang": "markdown",
+            "code": "## Tools\n- Choose tools by their descriptions.\n- Order, charge or refund questions with an order number:\n  start with lookup_order.\n- Profile, email or login questions: start with get_customer.",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Why was my account charged twice for order ORD-7731?"
+              },
+              {
+                "who": "claude",
+                "text": "System prompt no longer keys on \"account\". lookup_order's description covers charges on an order."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: lookup_order({\"order_id\": \"ORD-7731\"})"
+              },
+              {
+                "who": "tool",
+                "text": "Two payment captures found; one is a pending authorisation."
+              },
+              {
+                "who": "claude",
+                "text": "Explains the pending hold will drop off in 3 days. stop_reason: end_turn"
+              }
+            ],
+            "result": "good",
+            "verdict": "The right tool is chosen once the prompt stops overriding the descriptions.",
+            "why": "Keyword-sensitive wording in the system prompt can override well-written descriptions. The descriptions are already fixed, so the prompt is the remaining cause."
+          },
+          {
+            "text": "Add more example queries to the lookup_order description, including double charges, until it clearly outweighs the get_customer description.",
+            "lang": "json",
+            "code": "{\n  \"name\": \"lookup_order\",\n  \"description\": \"Looks up an order by ID (ORD-1234). Use for charges, double charges, refunds, delivery... Examples: 'charged twice', 'billed for order'...\"\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "lookup_order description grows to 14 examples."
+              },
+              {
+                "who": "user",
+                "text": "Why was my account charged twice for order ORD-7731?"
+              },
+              {
+                "who": "claude",
+                "text": "System prompt: \"For any account question, always start with get_customer.\""
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: get_customer({\"email\": \"...\"}) first, again."
+              },
+              {
+                "who": "system",
+                "text": "Misrouting rate drops only from 60% to 55%."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Descriptions keep growing, but the system prompt still wins.",
+            "why": "Right pattern, wrong problem: the descriptions were already good. The system prompt's keyword rule overrides them and has not been reviewed."
+          },
+          {
+            "text": "Add a PreToolUse hook that blocks get_customer whenever the customer's message contains an order number, forcing the agent to choose again.",
+            "lang": "text",
+            "code": "PreToolUse hook (matcher: get_customer)\n  if message matches /ORD-\\d+/:\n    deny \"Use lookup_order for order questions\"",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Order ORD-7731 was charged twice and I also need to update my email."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: get_customer (to update the email)."
+              },
+              {
+                "who": "hook",
+                "text": "Denied: message contains an order number."
+              },
+              {
+                "who": "claude",
+                "text": "Cannot update the email; retries, is denied again."
+              },
+              {
+                "who": "system",
+                "text": "Valid get_customer calls now fail in mixed requests."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Blocks legitimate calls and leaves the conflicting prompt in place.",
+            "why": "Over-engineered: a deterministic gate is added before the cheap, proportionate fix. The keyword rule in the system prompt still pushes the agent the wrong way."
+          },
+          {
+            "text": "Train a small intent classifier on past tickets and use it to pass the agent only the tool that matches each incoming message.",
+            "lang": "python",
+            "code": "# illustrative\nintent = intent_model.predict(message)  # \"profile\" or \"order\"\ntools = [TOOLS[\"get_customer\"]] if intent == \"profile\" else [TOOLS[\"lookup_order\"]]\nresponse = client.messages.create(\n    model=MODEL, max_tokens=1024, tools=tools, messages=messages,\n)",
+            "variants": {
+              "csharp": "// illustrative\nvar intent = intentModel.Predict(message); // \"profile\" or \"order\"\nvar tools = intent == \"profile\" ? new[] { TOOLS[\"get_customer\"] } : new[] { TOOLS[\"lookup_order\"] };\nvar response = await client.Messages.Create(new MessageCreateParams\n{\n    Model = MODEL, MaxTokens = 1024, Tools = tools, Messages = messages,\n});",
+              "typescript": "// illustrative\nconst intent = intentModel.predict(message); // \"profile\" or \"order\"\nconst tools = intent === \"profile\" ? [TOOLS[\"get_customer\"]] : [TOOLS[\"lookup_order\"]];\nconst response = await client.messages.create({\n  model: MODEL, max_tokens: 1024, tools, messages,\n});"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Classifier trained on 2,000 labelled tickets."
+              },
+              {
+                "who": "user",
+                "text": "Charged twice for ORD-7731. Is my account still active?"
+              },
+              {
+                "who": "app",
+                "text": "Classifier says \"profile\"; only get_customer is passed."
+              },
+              {
+                "who": "claude",
+                "text": "Confirms the account is active; cannot see the order."
+              },
+              {
+                "who": "user",
+                "text": "And the double charge?"
+              }
+            ],
+            "result": "bad",
+            "verdict": "Mixed requests lose a tool, and the prompt rule is still there.",
+            "why": "Over-engineered: a routing layer is built before reviewing the system prompt. It also removes the agent's ability to use both tools in one conversation."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Good descriptions still misrouted → check the system prompt for keyword rules that override them."
+      },
+      {
+        "scenario": "Developer Productivity with Claude",
+        "title": "Generic tool gives the wrong kind of answer",
+        "context": "A legacy-exploration agent has one tool, analyze_file, described as \"Analyses a file\", which takes a path and always returns a prose summary. When developers ask \"does the invoice module still call the old billing API?\", the agent answers from summaries that omit the call in 30% of cases. The team wants a proportionate fix that lets the agent pick the right kind of analysis.",
+        "question": "What change best addresses this?",
+        "options": [
+          {
+            "text": "Add a system-prompt instruction telling the agent to read each summary carefully and say \"not sure\" when a summary does not mention the call.",
+            "lang": "markdown",
+            "code": "## Verification questions\n- Read analyze_file summaries carefully.\n- If a summary does not mention the call, say \"not sure\".",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Does invoice.py still call legacy_billing.charge()?"
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: analyze_file(\"src/invoice.py\")"
+              },
+              {
+                "who": "tool",
+                "text": "Summary: \"Builds invoices and formats totals.\""
+              },
+              {
+                "who": "claude",
+                "text": "Answers \"not sure\" instead of checking the source."
+              },
+              {
+                "who": "user",
+                "text": "So I still have to grep it myself?"
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fewer wrong answers, but no real answers either.",
+            "why": "Probabilistic wording cannot recover detail the tool never returns. The tool interface itself gives the agent no way to ask for a verification."
+          },
+          {
+            "text": "Route verification questions to a dedicated verification subagent, chosen by a coordinator that classifies each question before any tool is called.",
+            "lang": "text",
+            "code": "coordinator\n  ├─ classify(question) → \"summary\" | \"verify\"\n  ├─ summary  → explore_agent  (analyze_file)\n  └─ verify   → verify_agent   (analyze_file + Grep)",
+            "trace": [
+              {
+                "who": "app",
+                "text": "New coordinator and verification subagent deployed."
+              },
+              {
+                "who": "user",
+                "text": "Does invoice.py still call legacy_billing.charge()?"
+              },
+              {
+                "who": "app",
+                "text": "Classifier: \"verify\". Hands off to verify_agent."
+              },
+              {
+                "who": "claude",
+                "text": "verify_agent still only has the vague analyze_file, so calls it and gets a summary."
+              },
+              {
+                "who": "system",
+                "text": "Two agents and a classifier to maintain; accuracy barely changes."
+              }
+            ],
+            "result": "bad",
+            "verdict": "More infrastructure, same vague tool underneath.",
+            "why": "Over-engineered: new routing is added before the tool interface is fixed. The proportionate fix is to give the agent purpose-specific tools."
+          },
+          {
+            "text": "Force tool_choice to analyze_file on the first turn of every request, so the agent always analyses the file before it answers.",
+            "lang": "json",
+            "code": "{\n  \"tool_choice\": {\"type\": \"tool\", \"name\": \"analyze_file\"}\n}",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Does invoice.py still call legacy_billing.charge()?"
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: analyze_file(\"src/invoice.py\") (forced)."
+              },
+              {
+                "who": "tool",
+                "text": "Summary: \"Builds invoices and formats totals.\""
+              },
+              {
+                "who": "claude",
+                "text": "Answers \"No, it does not call the billing API.\" It does, on line 212."
+              }
+            ],
+            "result": "bad",
+            "verdict": "The tool was already being called; the answer is still wrong.",
+            "why": "Right pattern, wrong problem: the agent never skipped the tool. The tool only returns summaries, so forcing it changes nothing."
+          },
+          {
+            "text": "Split analyze_file into purpose-specific tools, such as summarize_module and verify_claim_against_source, each with a clear description.",
+            "lang": "json",
+            "code": "{\n  \"name\": \"verify_claim_against_source\",\n  \"description\": \"Checks one yes/no claim about a file (e.g. 'calls legacy_billing.charge') and returns true/false with the matching lines. Use instead of summarize_module for verification questions.\"\n}",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Does invoice.py still call legacy_billing.charge()?"
+              },
+              {
+                "who": "claude",
+                "text": "Descriptions show this is a verification, not a summary."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: verify_claim_against_source({\"path\": \"src/invoice.py\", \"claim\": \"calls legacy_billing.charge\"})"
+              },
+              {
+                "who": "tool",
+                "text": "true; line 212: legacy_billing.charge(total)"
+              },
+              {
+                "who": "claude",
+                "text": "Yes, on line 212. stop_reason: end_turn"
+              }
+            ],
+            "result": "good",
+            "verdict": "The agent picks a tool built for the question and cites the line.",
+            "why": "A generic tool with a minimal description cannot signal what kind of analysis it does. Purpose-specific tools with clear descriptions let the model choose correctly."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "A generic tool gives the wrong kind of output → split it into purpose-specific, well-described tools."
+      }
+    ],
+    "checks": [
+      {
+        "q": "Your agent confuses two similar tools whose descriptions are one line each. What should you try first?",
+        "a": "Rewrite the descriptions (and names if needed) to state each tool's purpose, inputs, examples and boundaries, including which other tool to use instead."
+      },
+      {
+        "q": "You rewrote the descriptions but Claude still picks the wrong tool. What else should you check?",
+        "a": "The system prompt. Keyword-heavy wording there can pull Claude towards the wrong tool and override good descriptions."
+      },
+      {
+        "q": "Why is deleting one of two overlapping tools usually wrong?",
+        "a": "Both may be needed. Stating each tool's boundary keeps the capability and removes the overlap."
+      }
+    ],
+    "diagram": {
+      "type": "flow",
+      "title": "Fixing tool misrouting",
+      "steps": [
+        {
+          "label": "Wrong tool picked",
+          "note": "Similar tools, one-line descriptions",
+          "kind": "start"
+        },
+        {
+          "label": "Rewrite descriptions",
+          "note": "Purpose, inputs, examples, boundaries",
+          "kind": "step"
+        },
+        {
+          "label": "Rename or split",
+          "note": "One clear job per tool",
+          "kind": "step"
+        },
+        {
+          "label": "Still misrouting?",
+          "note": "Check system prompt keywords",
+          "kind": "decision"
+        },
+        {
+          "label": "Correct selection",
+          "note": "No classifier, no forced tool",
+          "kind": "good"
+        }
+      ]
+    },
+    "quiz": [
+      {
+        "q": "A research agent has `analyze_content` and `analyze_document`, each with a one-line description. It often calls the wrong one. What should you do first?",
+        "options": [
+          "Put a routing classifier in front of the agent to choose the tool",
+          "Rewrite both descriptions with purpose, inputs and clear boundaries",
+          "Force `analyze_document` with `tool_choice` on every request",
+          "Remove `analyze_content` so only one analysis tool remains"
+        ],
+        "answer": 1,
+        "why": "Descriptions are the main way Claude selects tools, so improving them is the proportionate first fix. The other options add complexity or lose capability."
+      },
+      {
+        "q": "You rewrote the descriptions carefully, but Claude still prefers `analyze_content`. The system prompt says \"always analyse content first\". What is the most likely next step?",
+        "options": [
+          "Rewrite the tool descriptions again with even more detail",
+          "Train a classifier on the requests that are still misrouted",
+          "Merge the two tools into one large general analysis tool",
+          "Reword the system prompt so it does not steer to that tool"
+        ],
+        "answer": 3,
+        "why": "Keyword-heavy system-prompt wording can override good descriptions. Rewriting the descriptions again does not address that cause."
+      },
+      {
+        "q": "Which description best helps Claude choose between two similar tools?",
+        "options": [
+          "\"Extracts links from web result pages. Not for PDFs: use analyze_document.\"",
+          "\"Extracts data. Works on many kinds of input and returns useful output.\"",
+          "\"Powerful extraction tool. Use whenever extraction is needed at all.\"",
+          "\"Web tool v2. See the internal wiki page for the full usage notes.\""
+        ],
+        "answer": 0,
+        "why": "It states the purpose, the input type and the boundary, and names the alternative tool. The others are vague or point to text Claude cannot see."
+      },
+      {
+        "q": "A team wants to remove `analyze_content` because it overlaps with `analyze_document`. Why is this usually the wrong fix?",
+        "options": [
+          "Claude needs at least two tools before it will call any tool",
+          "Deleting tools makes the conversation history invalid",
+          "Both tools may be needed; clear boundaries fix the overlap",
+          "Removing a tool makes the remaining descriptions longer"
+        ],
+        "answer": 2,
+        "why": "The overlap is in the wording, not in the capabilities. Stating each tool's boundary keeps both jobs available."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "The tool name is what matters; the description is just documentation.",
+        "fact": "The description is the main thing Claude reads when selecting a tool. Names help, but a clear description with boundaries does most of the work."
+      },
+      {
+        "myth": "If Claude keeps choosing the wrong tool, you need a routing layer.",
+        "fact": "A classifier is over-engineering until clearer descriptions, renaming or splitting, and a system-prompt review have been tried."
+      },
+      {
+        "myth": "Once the descriptions are good, the system prompt cannot cause misrouting.",
+        "fact": "Keyword-heavy wording in the system prompt can still pull Claude to the wrong tool, so review it as well."
+      }
+    ],
+    "scenario": {
+      "title": "Multi-Agent Research System",
+      "story": "A research team built an agent with two tools: `analyze_content` and `analyze_document`. Each had a one-line description. Users uploaded PDF reports and asked for summaries, but about a third of the time Claude called `analyze_content`, which expected web page text. The results came back empty.\n\nThe first idea was a small classifier to label each request \"web\" or \"document\" before calling Claude. A senior engineer asked a simpler question: what does Claude actually read when it chooses? The answer was two vague sentences.\n\nThe team renamed `analyze_content` to `extract_web_results`. They rewrote both descriptions with the input type, an example request, an edge case and a line naming the other tool: \"Not for PDFs; use `analyze_document`.\"\n\nMisrouting dropped but did not vanish. A search of the system prompt found \"always analyse content thoroughly\". They changed it to \"summarise sources thoroughly\". After that, the same test set of 50 requests routed correctly, with no new infrastructure to maintain."
+    },
+    "currentNote": "The exam advice is unchanged. One detail differs: forcing a tool with `tool_choice` `{\"type\": \"tool\"}` or `{\"type\": \"any\"}` now returns HTTP 400 on Opus 5.5, Sonnet 5.5 and Fable 5.1, so on current models the \"force the tool\" trap is not even available."
+  },
+  {
+    "id": "2.2",
+    "plain": "When a tool fails, Claude has to decide what to do next: try again, try something else, or tell the user. It can only decide well if the error says what kind of failure it was and whether retrying could help. A failure is also different from a search that worked but found nothing.",
+    "analogy": "A shop assistant who says \"computer says no\" leaves you stuck. One who says \"the till is rebooting, try in a minute\" or \"we cannot refund sale items\" tells you exactly what to do next.",
+    "sections": [
+      {
+        "h": "Why errors need structure",
+        "body": "**An error message is input for the agent's next decision, so it must say what failed and whether to try again.**\n\nWhen a tool fails, Claude has three choices: retry, try something else, or explain the problem to the user. A bare \"Operation failed\" does not help it choose. A timeout and a policy refusal look identical.\n\nMCP tools signal failure with the **`isError`** flag on the result. Inside the error content, add structured fields:\n\n- **`errorCategory`**: what kind of failure it was;\n- **`isRetryable`**: whether trying again could succeed;\n- a **human-readable description** of what happened.\n\nThe exact field names are your server's design. What matters is that Claude can read the category and the retry advice."
+      },
+      {
+        "h": "The four error categories",
+        "body": "**Each category points to a different recovery, and only one is worth an automatic retry.**\n\n- **Transient**: a timeout or a service that is briefly down. Retry, perhaps once or twice.\n- **Validation**: the input was wrong, for example `ORD-55` instead of `ORD-00055`. Retrying the same input fails again. Fix the input or ask the user.\n- **Business**: a policy blocks the action, such as a refund over the limit. Set `isRetryable: false` and include a **customer-friendly explanation** the agent can pass on.\n- **Permission**: the caller is not allowed to do this. Retrying will not help. Escalate or request access.\n\nMarking everything retryable, even with a retry cap, just wastes calls on errors that can never succeed."
+      },
+      {
+        "h": "Failure is not the same as \"no results\"",
+        "body": "**\"I could not look\" and \"I looked and found nothing\" are different answers and must look different.**\n\n- **Access failure**: the database timed out or was unreachable. The truth is unknown. Return it with `isError: true` so Claude can consider a retry.\n- **Valid empty result**: the query ran and there were no matches. That is a real, successful answer, such as `{\"orders\": []}` with no error flag.\n\nThe danger is a tool that catches a timeout and returns an empty list. Claude then tells a customer \"you have no orders\" with full confidence, and the customer is holding the confirmation email.\n\nRule: errors use `isError`; empty results are normal successful responses."
+      },
+      {
+        "h": "Errors in multi-agent systems",
+        "body": "**Subagents fix what they can locally and pass up only what they could not fix, with context.**\n\nIn a coordinator-and-subagent set-up:\n\n1. A subagent hits a transient error, for example a search timeout.\n2. It retries locally, once or twice.\n3. If that works, the coordinator never hears about it.\n4. If it still fails, the subagent reports the error **together with** any partial results and a list of what it tried (sources, number of retries).\n\nSending every short timeout to the coordinator floods it with noise. Hiding unresolved errors is worse: the final report has gaps that nobody knows about. With partial results and attempts, the coordinator can re-delegate, try another source or note the gap."
+      }
+    ],
+    "example": {
+      "title": "Worked example: a structured business-rule error from a refund tool",
+      "lang": "json",
+      "code": "{\n  \"isError\": true,\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"errorCategory\\\": \\\"business\\\", \\\"isRetryable\\\": false, \\\"description\\\": \\\"Refund of 450.00 exceeds the 200.00 automatic refund limit.\\\", \\\"customerMessage\\\": \\\"Refunds over 200 need a quick review by our team. I have passed this on.\\\"}\"\n    }\n  ]\n}",
+      "notes": [
+        "`isError: true` marks the result as a failure rather than normal data.",
+        "`errorCategory: business` tells the agent a policy blocked this, not a glitch.",
+        "`isRetryable: false` stops the agent wasting calls on a retry that cannot succeed.",
+        "`customerMessage` gives a friendly explanation the agent can pass straight to the customer.",
+        "The metadata sits inside the text content; the exact field names are your server's design (illustrative)."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Customer Support Resolution Agent",
+        "title": "Order lookup failures all look the same",
+        "context": "lookup_order fails in two ways: the order database times out on about 4% of calls and usually recovers within seconds, or the customer gives a malformed order ID. Both currently return \"Operation failed\", so the agent asks customers to re-type IDs that were correct. The team is targeting 80% first-contact resolution.",
+        "question": "How should lookup_order report the database timeout?",
+        "options": [
+          {
+            "text": "Return an empty orders list with no error flag, so the agent stays calm and simply asks the customer to double-check the order number.",
+            "lang": "json",
+            "code": "{\n  \"content\": [\n    {\"type\": \"text\", \"text\": \"{\\\"orders\\\": []}\"}\n  ]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: lookup_order({\"order_id\": \"ORD-5521\"})"
+              },
+              {
+                "who": "tool",
+                "text": "Database timed out, but tool returns {\"orders\": []} with no error flag."
+              },
+              {
+                "who": "claude",
+                "text": "Reads this as a successful search with no matches."
+              },
+              {
+                "who": "claude",
+                "text": "Tells the customer: \"I can't find any order with that number.\""
+              },
+              {
+                "who": "user",
+                "text": "But I have the confirmation email right here!"
+              }
+            ],
+            "result": "bad",
+            "verdict": "An outage was reported as 'no data', so the customer got a false answer.",
+            "why": "An access failure was disguised as a valid empty result. Claude had no way to know it should retry, so it concluded the order does not exist."
+          },
+          {
+            "text": "Return isError with errorCategory \"transient\", isRetryable true and a short description, keeping validation failures as a separate category.",
+            "lang": "json",
+            "code": "{\n  \"isError\": true,\n  \"content\": [{\"type\": \"text\", \"text\":\n    \"{\\\"errorCategory\\\": \\\"transient\\\", \\\"isRetryable\\\": true, \\\"description\\\": \\\"Order database timed out after 5s.\\\"}\"}]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: lookup_order({\"order_id\": \"ORD-5521\"})"
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, errorCategory: transient, isRetryable: true"
+              },
+              {
+                "who": "claude",
+                "text": "Transient and retryable, so retries once."
+              },
+              {
+                "who": "tool",
+                "text": "Returns order ORD-5521: shipped 3 days ago."
+              },
+              {
+                "who": "claude",
+                "text": "Tells the customer the order is on its way. stop_reason: end_turn"
+              }
+            ],
+            "result": "good",
+            "verdict": "One sensible retry, correct answer for the customer.",
+            "why": "The category and retry flag let Claude choose the right recovery. This is exactly the metadata the lesson says every tool failure should carry."
+          },
+          {
+            "text": "Keep the isError flag with \"Operation failed\", and add a system-prompt rule to retry once before asking the customer to re-type the ID.",
+            "lang": "json",
+            "code": "{\n  \"isError\": true,\n  \"content\": [{\"type\": \"text\", \"text\": \"Operation failed\"}]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: lookup_order({\"order_id\": \"ORD-55\"})"
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, text: Operation failed (ID is malformed)"
+              },
+              {
+                "who": "claude",
+                "text": "Prompt says retry once. Retries the same bad ID."
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, text: Operation failed"
+              },
+              {
+                "who": "claude",
+                "text": "Only now asks the customer to re-type; a wasted call on every bad ID."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Timeouts improve, but every validation error now wastes a retry.",
+            "why": "Probabilistic fix for a missing-metadata problem. Without a category and retry flag the agent still cannot tell a timeout from bad input."
+          },
+          {
+            "text": "Mark every lookup_order error as retryable and cap retries at three, so timeouts recover automatically without any change to the error format.",
+            "lang": "json",
+            "code": "{\n  \"isError\": true,\n  \"content\": [{\"type\": \"text\", \"text\":\n    \"{\\\"isRetryable\\\": true, \\\"description\\\": \\\"Operation failed\\\"}\"}]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: lookup_order({\"order_id\": \"ORD-55\"})"
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, isRetryable: true (ID is malformed)"
+              },
+              {
+                "who": "claude",
+                "text": "Retries. Retries. Retries."
+              },
+              {
+                "who": "tool",
+                "text": "Same failure three times."
+              },
+              {
+                "who": "claude",
+                "text": "Tells the customer the system is down. It is not."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Bad IDs now burn three retries and end in a false outage message.",
+            "why": "Blanket retryability ignores the error category. Validation errors never succeed on retry, so the agent wastes calls and misleads the customer."
+          }
+        ],
+        "answer": 1,
+        "takeaway": "Tool failure → return errorCategory and isRetryable so the agent can tell a timeout from bad input."
+      },
+      {
+        "scenario": "Multi-Agent Research System",
+        "title": "Subagent throws away nine good analyses",
+        "context": "The document-analysis subagent is given 12 sources; 3 are paywalled and return a permission error, while 9 are analysed successfully. It reports only \"Analysis failed\" to the coordinator, which re-dispatches the whole task and fails again. The report must state clearly which sources it could not access.",
+        "question": "How should the subagent report this outcome?",
+        "options": [
+          {
+            "text": "Retry the three paywalled fetches with exponential backoff up to five times each before reporting anything back to the coordinator.",
+            "lang": "text",
+            "code": "for source in failed_sources:\n  retry up to 5 times, backoff 2s → 32s\nthen report \"Analysis failed\"",
+            "trace": [
+              {
+                "who": "tool",
+                "text": "fetch DOC-03: 403 Forbidden (paywall)."
+              },
+              {
+                "who": "claude",
+                "text": "Retries 5 times over 62 seconds; all 403."
+              },
+              {
+                "who": "claude",
+                "text": "Same for DOC-07 and DOC-11."
+              },
+              {
+                "who": "app",
+                "text": "Three minutes later the coordinator still gets \"Analysis failed\"."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fifteen wasted calls, and the nine good analyses are still lost.",
+            "why": "Permission errors will never succeed on retry, so backoff only adds delay. The real gap is the missing partial results and error metadata."
+          },
+          {
+            "text": "Leave the three paywalled sources out quietly and return the nine analyses as a complete result, so the coordinator can carry on.",
+            "lang": "json",
+            "code": "{\n  \"status\": \"complete\",\n  \"analyses\": [ /* 9 items */ ]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Analyses 9 sources; drops the 3 that failed."
+              },
+              {
+                "who": "app",
+                "text": "Coordinator receives status: complete."
+              },
+              {
+                "who": "claude",
+                "text": "Synthesis writes \"all 12 sources were reviewed\"."
+              },
+              {
+                "who": "user",
+                "text": "A reviewer finds the key paywalled study was never read."
+              }
+            ],
+            "result": "bad",
+            "verdict": "The report claims coverage it does not have.",
+            "why": "Hiding the failure is as harmful as a generic error. The coordinator cannot flag the gap because it never learns what was attempted."
+          },
+          {
+            "text": "Have the coordinator re-dispatch the whole task to a fresh subagent with a longer timeout whenever a subagent reports \"Analysis failed\".",
+            "lang": "text",
+            "code": "on \"Analysis failed\":\n  spawn new document-analysis subagent\n  timeout: 120s → 300s\n  retry whole task (12 sources)",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Coordinator spawns a second subagent with a 300s timeout."
+              },
+              {
+                "who": "claude",
+                "text": "Re-analyses the same 9 sources from scratch."
+              },
+              {
+                "who": "tool",
+                "text": "Same 3 sources: 403 Forbidden."
+              },
+              {
+                "who": "claude",
+                "text": "Reports \"Analysis failed\" again; loop repeats."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Double the cost, same three permission errors.",
+            "why": "Right pattern, wrong problem: a longer timeout helps transient failures, not permission refusals. Without metadata the coordinator keeps retrying blindly."
+          },
+          {
+            "text": "Return the nine analyses plus a structured error per failed source, with errorCategory \"permission\", isRetryable false and what was attempted.",
+            "lang": "json",
+            "code": "{\n  \"analyses\": [ /* 9 items */ ],\n  \"errors\": [{\n    \"source\": \"DOC-03\",\n    \"errorCategory\": \"permission\",\n    \"isRetryable\": false,\n    \"description\": \"Paywalled: 403 from publisher. Tried DOI and PDF URL.\"\n  }]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Analyses 9 sources; 3 return 403."
+              },
+              {
+                "who": "claude",
+                "text": "Returns 9 analyses plus 3 permission errors, not retryable."
+              },
+              {
+                "who": "app",
+                "text": "Coordinator does not retry; passes the gaps to synthesis."
+              },
+              {
+                "who": "claude",
+                "text": "Report notes: \"3 sources were paywalled and not reviewed.\""
+              }
+            ],
+            "result": "good",
+            "verdict": "Nothing wasted, and the report is honest about its gaps.",
+            "why": "Subagents should propagate unresolved errors with partial results and what was attempted. The category and retry flag tell the coordinator not to try again."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "Unresolved subagent error → send partial results, the error category and what was tried."
+      },
+      {
+        "scenario": "Developer Productivity with Claude",
+        "title": "Merge tool blocked by a change freeze",
+        "context": "An automation agent merges approved pull requests with an MCP tool, merge_pull_request. During the weekly change freeze the server refuses every merge with \"Operation failed\", so the agent retries six times and then tells developers the Git server is flaky. Developers need to know what is blocking them and when it lifts.",
+        "question": "What change lets the agent respond correctly?",
+        "options": [
+          {
+            "text": "Return isError, errorCategory \"business\", isRetryable false and a description saying when the freeze ends and who can grant exceptions.",
+            "lang": "json",
+            "code": "{\n  \"isError\": true,\n  \"content\": [{\"type\": \"text\", \"text\":\n    \"{\\\"errorCategory\\\": \\\"business\\\", \\\"isRetryable\\\": false, \\\"description\\\": \\\"Change freeze until Mon 09:00. Ask the release manager for an exception.\\\"}\"}]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: merge_pull_request({\"pr\": 412})"
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, business, isRetryable: false, freeze until Mon 09:00"
+              },
+              {
+                "who": "claude",
+                "text": "Does not retry."
+              },
+              {
+                "who": "claude",
+                "text": "Tells the developer: \"Merges are frozen until Monday 09:00; the release manager can grant an exception.\""
+              }
+            ],
+            "result": "good",
+            "verdict": "No wasted retries, and the developer knows exactly what to do.",
+            "why": "A business-rule error with isRetryable false and a clear explanation prevents pointless retries. It also gives the human a useful next step."
+          },
+          {
+            "text": "Cap merge_pull_request retries at two in the agent loop, and after that report the failure to the developer and move on to the next task.",
+            "lang": "text",
+            "code": "agent loop:\n  max_retries[merge_pull_request] = 2\n  after cap → report \"merge failed\" and continue",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: merge_pull_request({\"pr\": 412})"
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, text: Operation failed"
+              },
+              {
+                "who": "claude",
+                "text": "Retries twice; same failure."
+              },
+              {
+                "who": "claude",
+                "text": "Tells the developer \"merge failed, please try later\"."
+              },
+              {
+                "who": "user",
+                "text": "Try when? Why did it fail?"
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fewer wasted calls, but nobody knows why or when.",
+            "why": "A retry cap limits waste without fixing the missing metadata. The agent still cannot tell a policy block from an outage."
+          },
+          {
+            "text": "Add a system-prompt rule: \"If any tool fails twice in a row, stop retrying and tell the user the service may be temporarily unavailable.\"",
+            "lang": "markdown",
+            "code": "## Tool failures\nIf any tool fails twice in a row, stop retrying\nand tell the user the service may be temporarily\nunavailable.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: merge_pull_request({\"pr\": 412})"
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, text: Operation failed"
+              },
+              {
+                "who": "claude",
+                "text": "Retries once, fails again, follows the prompt rule."
+              },
+              {
+                "who": "claude",
+                "text": "Tells the developer the Git server may be down."
+              },
+              {
+                "who": "user",
+                "text": "Opens an incident with the platform team for nothing."
+              }
+            ],
+            "result": "bad",
+            "verdict": "The agent stops sooner but gives the wrong reason.",
+            "why": "Probabilistic wording cannot supply information the tool never returns. Without a business category the agent still guesses \"outage\"."
+          },
+          {
+            "text": "Pass the raw HTTP status code and gateway response body through to the agent, so it can work out the cause of each failure for itself.",
+            "lang": "json",
+            "code": "{\n  \"isError\": true,\n  \"content\": [{\"type\": \"text\", \"text\":\n    \"HTTP 423 Locked: {\\\"code\\\": \\\"E_REPO_LOCK_7\\\"}\"}]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: merge_pull_request({\"pr\": 412})"
+              },
+              {
+                "who": "tool",
+                "text": "isError: true, HTTP 423 Locked, code E_REPO_LOCK_7"
+              },
+              {
+                "who": "claude",
+                "text": "Guesses a lock held by another merge; retries in 30s."
+              },
+              {
+                "who": "tool",
+                "text": "HTTP 423 Locked again, four more times."
+              },
+              {
+                "who": "claude",
+                "text": "Tells the developer another merge seems stuck."
+              }
+            ],
+            "result": "bad",
+            "verdict": "More detail, but still no category, retry flag or plain explanation.",
+            "why": "Raw codes leave the agent to guess whether a retry could help. Structured errorCategory and isRetryable make that decision explicit."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Policy refusal → errorCategory \"business\", isRetryable false and a human-readable reason."
+      }
+    ],
+    "checks": [
+      {
+        "q": "A refund tool rejects a request because it breaks company policy. What should the error carry?",
+        "a": "A business category, `retriable: false` (isRetryable false) and a customer-friendly explanation the agent can relay."
+      },
+      {
+        "q": "Why is returning an empty list on a database timeout harmful?",
+        "a": "It makes an access failure look like a valid 'no matches' result, so the agent wrongly concludes the data does not exist instead of considering a retry."
+      },
+      {
+        "q": "A web-search subagent hits a brief timeout. Should it report this to the coordinator straight away?",
+        "a": "No. It should retry locally first and only propagate the error if it stays unresolved, along with partial results and what it tried."
+      }
+    ],
+    "diagram": {
+      "type": "flow",
+      "title": "Deciding what to do with a tool error",
+      "steps": [
+        {
+          "label": "Tool call fails",
+          "note": "Result has isError: true",
+          "kind": "start"
+        },
+        {
+          "label": "Read errorCategory",
+          "note": "Transient, validation, business, permission",
+          "kind": "decision"
+        },
+        {
+          "label": "Transient: retry",
+          "note": "isRetryable true, retry briefly",
+          "kind": "tool"
+        },
+        {
+          "label": "Others: do not retry",
+          "note": "Fix input, explain or escalate",
+          "kind": "step"
+        },
+        {
+          "label": "Still failing?",
+          "note": "Report partial results and attempts",
+          "kind": "end"
+        }
+      ],
+      "loop": {
+        "from": 2,
+        "to": 0,
+        "label": "Retry a transient error"
+      }
+    },
+    "quiz": [
+      {
+        "q": "A refund tool rejects a 450.00 refund because the automatic limit is 200.00. What should the error return?",
+        "options": [
+          "A transient category with `isRetryable: true` so the agent tries again",
+          "A plain \"Operation failed\" message with the `isError` flag set",
+          "A business category, `isRetryable: false` and a customer-friendly reason",
+          "An empty result so the agent assumes the refund was not needed"
+        ],
+        "answer": 2,
+        "why": "A policy refusal will never succeed on retry. A business category with a clear explanation lets the agent tell the customer what happens next."
+      },
+      {
+        "q": "The order database times out, and the tool returns `{\"orders\": []}` with no error flag. What is the main problem?",
+        "options": [
+          "Claude treats an access failure as a valid \"no matches\" result",
+          "Claude will retry the call forever because the list is empty",
+          "The empty list breaks the JSON schema of the tool result",
+          "The coordinator receives too many error messages from it"
+        ],
+        "answer": 0,
+        "why": "Disguising a failure as an empty result makes Claude conclude the data does not exist instead of considering a retry."
+      },
+      {
+        "q": "A team marks every tool error as retryable and adds a cap of three retries. What is wrong with this?",
+        "options": [
+          "Three retries is too few; transient errors need at least ten",
+          "Retry caps are not allowed by the MCP specification",
+          "Retryable errors must not carry a human-readable description",
+          "Business and permission errors will never succeed on retry"
+        ],
+        "answer": 3,
+        "why": "Blanket retryability wastes calls on errors that cannot succeed. Only transient errors should be marked retryable."
+      },
+      {
+        "q": "A web-search subagent hits a two-second timeout on one source. What should it do?",
+        "options": [
+          "Report the timeout to the coordinator straight away and stop",
+          "Retry locally, and escalate only if unresolved, with partial results",
+          "Return an empty result list so the coordinator can move on",
+          "Mark the error as a business error so nobody retries it"
+        ],
+        "answer": 1,
+        "why": "Transient failures are recovered locally. Only unresolved errors go up, together with partial results and what was attempted."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "Setting `isError: true` is enough for the agent to recover.",
+        "fact": "The flag only says something failed. The agent also needs the category and whether a retry could help."
+      },
+      {
+        "myth": "An empty result and a failed lookup can be reported the same way.",
+        "fact": "A failure means the answer is unknown; an empty result is a real answer. Mixing them leads to confident wrong replies."
+      },
+      {
+        "myth": "A retry cap makes it safe to mark every error retryable.",
+        "fact": "A cap limits the waste but does not remove it. Policy and permission errors should be marked non-retryable from the start."
+      }
+    ],
+    "scenario": {
+      "title": "Customer Support Resolution Agent",
+      "story": "A support agent for an online shop used an MCP tool called `lookup_order`. One busy Monday the order database slowed down. The tool caught each timeout and returned an empty list. Claude told several customers, \"I can't find any order with that number.\" Complaints followed, because the orders existed.\n\nThe team's first fix was to return `isError: true` with the text \"Operation failed\". That stopped the false \"no order\" replies, but now Claude could not tell a timeout from a bad order ID. It kept asking customers to re-type correct numbers.\n\nThe proper fix was structured errors. Timeouts now return `errorCategory: \"transient\"` and `isRetryable: true`. Badly formatted IDs return `\"validation\"`. Refunds over the limit return `\"business\"`, `isRetryable: false` and a short message the agent can read out: \"Refunds over 200 need a quick review by our team.\"\n\nThe next slowdown passed almost unnoticed. Claude retried once, found the order and answered correctly."
+    }
+  },
+  {
+    "id": "2.3",
+    "plain": "Every tool you give an agent is one more option it might pick wrongly. Give each agent only the tools its job needs. Separately, the `tool_choice` setting lets you say whether Claude may answer in plain text, must call some tool, or must call one particular tool.",
+    "analogy": "A pharmacist with five clearly labelled drawers works faster and makes fewer mistakes than one facing a wall of 18 unlabelled drawers, half of which belong to the lab next door.",
+    "sections": [
+      {
+        "h": "Why fewer tools work better",
+        "body": "**Every extra tool is one more chance to pick wrongly, so give each agent only the tools its job needs.**\n\nSelection quality drops as the tool list grows. An agent with **18 tools** chooses less reliably than one with **4 or 5**.\n\nTools outside an agent's role also get **misused**. A synthesis agent, whose job is to write a report from material it has been given, will start running web searches itself if a search tool is in its list.\n\nSo **scope each subagent's tools to its role**:\n\n- the search agent gets search tools;\n- the synthesis agent gets writing and checking tools;\n- the coordinator gets tools to delegate work.\n\nFor each tool, ask: does this agent's job ever need it? If not, leave it out."
+      },
+      {
+        "h": "Constrained and cross-role tools",
+        "body": "**Prefer narrow tools that can only do the right thing, and give a small shared tool for frequent simple needs.**\n\n- **Constrain generic tools.** A `fetch_url` tool can fetch any page. A `load_document` tool that checks the URL really points at a document does one job and cannot drift into general browsing.\n- **Add a scoped cross-role tool.** If the synthesis agent needs a quick fact check many times per report, give it a narrow `verify_fact` tool. Sending each check back through the coordinator works, but adds a slow round trip every time.\n\nComplex cases, such as starting a new line of research, still go through the **coordinator**. The cross-role tool covers only the simple, frequent need."
+      },
+      {
+        "h": "The three tool_choice modes",
+        "body": "**`tool_choice` sets whether Claude may answer in text, must call some tool, or must call one named tool.**\n\n- `{\"type\": \"auto\"}`: the default. Claude may call a tool or reply in plain text.\n- `{\"type\": \"any\"}`: Claude **must call a tool**, but it chooses which one.\n- `{\"type\": \"tool\", \"name\": \"extract_metadata\"}`: Claude **must call that tool**.\n\nRead exam stems carefully:\n\n- \"some tool must run\" means `any`;\n- \"this specific tool must run first\" means the forced `tool` form;\n- \"Claude may simply answer\" means `auto`.\n\nA fourth value, `{\"type\": \"none\"}`, stops tool calls entirely, but the exam focuses on the three above. Use `auto` for most turns."
+      },
+      {
+        "h": "Force first, then release",
+        "body": "**Force a tool only for the step that must come first, then switch back to `auto`.**\n\nExample: a pipeline must run `extract_metadata` before `enrich_record`.\n\n1. **Turn 1**: send the request with `{\"type\": \"tool\", \"name\": \"extract_metadata\"}`.\n2. Run the tool and send its result back as a `tool_result`.\n3. **Turn 2 onwards**: send `{\"type\": \"auto\"}` so Claude can choose enrichment tools and finish with a text answer.\n\n`{\"type\": \"any\"}` on turn 1 is not enough. Claude must call *a* tool, but may pick `enrich_record` first.\n\nLeaving the force on for every turn is the other trap. Claude calls the same tool again and again and never gives a text reply."
+      },
+      {
+        "h": "In current models",
+        "body": "**On current models, forced choices are rejected, so learn the exam answer and the current alternative.**\n\nOn Claude Opus 5.5, Sonnet 5.5 and Fable 5.1, `{\"type\": \"any\"}` and `{\"type\": \"tool\", ...}` return **HTTP 400**, whatever the thinking settings. With manual extended thinking (`thinking: {\"type\": \"enabled\"}`), they fail on every model.\n\nTo guarantee structure today:\n\n- keep `tool_choice` on `auto` and set `\"strict\": true` on the tool definition, so any call matches its schema; or\n- use structured outputs: `\"output_config\": {\"format\": {\"type\": \"json_schema\", \"schema\": {...}}}`. The older `output_format` is deprecated.\n\nStructured JSON arrives as text, so still check `stop_reason` for `refusal` or `max_tokens`. For the exam, answer with forced-then-`auto`."
+      }
+    ],
+    "example": {
+      "title": "Worked example: force metadata extraction first, then release",
+      "lang": "python",
+      "code": "# Turn 1: guarantee extract_metadata runs before anything else\nfirst = client.messages.create(\n    model=MODEL,\n    max_tokens=1024,\n    tools=[extract_metadata, enrich_record, lookup_company],\n    tool_choice={\"type\": \"tool\", \"name\": \"extract_metadata\"},\n    messages=messages,\n)\nmessages.append({\"role\": \"assistant\", \"content\": first.content})\nmessages.append({\"role\": \"user\", \"content\": [run_tool(first)]})  # tool_result\n\n# Turn 2 onwards: let Claude choose freely again\nnxt = client.messages.create(\n    model=MODEL,\n    max_tokens=1024,\n    tools=[extract_metadata, enrich_record, lookup_company],\n    tool_choice={\"type\": \"auto\"},\n    messages=messages,\n)",
+      "notes": [
+        "The first call uses the forced form `{\"type\": \"tool\", \"name\": ...}`, so `extract_metadata` is guaranteed to run.",
+        "`{\"type\": \"any\"}` would not be enough: it only guarantees *some* tool call.",
+        "The tool result goes back as a user message before the next request.",
+        "The follow-up uses `auto`, so Claude can pick enrichment tools and finish in text.",
+        "`run_tool` and `MODEL` are placeholders. This is the exam pattern; on Opus 5.5, Sonnet 5.5 and Fable 5.1 the forced first call returns HTTP 400 (see the note above)."
+      ],
+      "variants": {
+        "csharp": "// illustrative: ToolChoice type names are not in the skill's C# docs\n// Turn 1: guarantee extract_metadata runs before anything else\nvar first = await client.Messages.Create(new MessageCreateParams\n{\n    Model = MODEL,\n    MaxTokens = 1024,\n    Tools = [extractMetadata, enrichRecord, lookupCompany],\n    ToolChoice = new ToolChoiceTool { Name = \"extract_metadata\" },\n    Messages = messages,\n});\nmessages.Add(new() { Role = Role.Assistant, Content = ToParams(first.Content) });\nmessages.Add(new() { Role = Role.User, Content = [RunTool(first)] });  // tool_result\n\n// Turn 2 onwards: let Claude choose freely again\nvar nxt = await client.Messages.Create(new MessageCreateParams\n{\n    Model = MODEL,\n    MaxTokens = 1024,\n    Tools = [extractMetadata, enrichRecord, lookupCompany],\n    ToolChoice = new ToolChoiceAuto(),\n    Messages = messages,\n});",
+        "typescript": "// Turn 1: guarantee extract_metadata runs before anything else\nconst first = await client.messages.create({\n  model: MODEL,\n  max_tokens: 1024,\n  tools: [extractMetadata, enrichRecord, lookupCompany],\n  tool_choice: { type: \"tool\", name: \"extract_metadata\" },\n  messages: messages,\n});\nmessages.push({ role: \"assistant\", content: first.content });\nmessages.push({ role: \"user\", content: [runTool(first)] });  // tool_result\n\n// Turn 2 onwards: let Claude choose freely again\nconst nxt = await client.messages.create({\n  model: MODEL,\n  max_tokens: 1024,\n  tools: [extractMetadata, enrichRecord, lookupCompany],\n  tool_choice: { type: \"auto\" },\n  messages: messages,\n});"
+      }
+    },
+    "labs": [
+      {
+        "scenario": "Structured Data Extraction",
+        "title": "Enrichment runs before metadata is extracted",
+        "context": "An invoice pipeline must call extract_metadata before enrich_record, because enrichment needs the vendor and currency. In 9% of runs Claude calls enrich_record first and it fails. After the first step, Claude must be free to choose tools and finish with a text summary.",
+        "question": "Which tool_choice set-up meets both requirements?",
+        "options": [
+          {
+            "text": "Set tool_choice to \"any\" on the first turn so Claude must call a tool, then switch to \"auto\" for every later turn.",
+            "lang": "python",
+            "code": "# illustrative\n# Turn 1: \"must call a tool\"\nturn1 = {\"type\": \"any\"}\n# Turn 2 onwards\nturn2_onwards = {\"type\": \"auto\"}",
+            "variants": {
+              "csharp": "// illustrative\n// Turn 1: \"must call a tool\"\nToolChoice turn1 = new ToolChoiceAny();\n// Turn 2 onwards\nToolChoice turn2Onwards = new ToolChoiceAuto();",
+              "typescript": "// illustrative\n// Turn 1: \"must call a tool\"\nconst turn1 = { type: \"any\" };\n// Turn 2 onwards\nconst turn2Onwards = { type: \"auto\" };"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Turn 1 sent with tool_choice any."
+              },
+              {
+                "who": "claude",
+                "text": "Must call some tool. Picks enrich_record because the request mentions enrichment."
+              },
+              {
+                "who": "tool",
+                "text": "enrich_record fails: no vendor field yet."
+              },
+              {
+                "who": "claude",
+                "text": "Calls extract_metadata second, then retries enrichment."
+              }
+            ],
+            "result": "bad",
+            "verdict": "A tool ran, but not the one that had to go first.",
+            "why": "\"any\" only requires some tool call. It does not guarantee which one, so the ordering requirement is not met."
+          },
+          {
+            "text": "Force tool_choice to extract_metadata on every turn, so the pipeline can never skip the metadata step at any point in the run.",
+            "lang": "python",
+            "code": "# illustrative\nfor turn in range(5):\n    response = call_claude(\n        messages,\n        tool_choice={\"type\": \"tool\", \"name\": \"extract_metadata\"},\n    )",
+            "variants": {
+              "csharp": "// illustrative\nfor (var turn = 0; turn < 5; turn++)\n{\n    var response = await CallClaude(\n        messages,\n        toolChoice: new ToolChoiceTool { Name = \"extract_metadata\" });\n}",
+              "typescript": "// illustrative\nfor (let turn = 0; turn < 5; turn++) {\n  const response = await callClaude(\n    messages,\n    { tool_choice: { type: \"tool\", name: \"extract_metadata\" } },\n  );\n}"
+            },
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Turn 1: tool_use: extract_metadata. Correct."
+              },
+              {
+                "who": "claude",
+                "text": "Turn 2: forced again, calls extract_metadata on the same document."
+              },
+              {
+                "who": "claude",
+                "text": "Turn 3: forced again, same call, same result."
+              },
+              {
+                "who": "app",
+                "text": "enrich_record never runs; no text answer is ever produced."
+              }
+            ],
+            "result": "bad",
+            "verdict": "First step guaranteed, but the agent is stuck in a loop.",
+            "why": "Keeping the force on blocks model-driven choice and text replies. Force the first call, then release in follow-up turns."
+          },
+          {
+            "text": "Keep tool_choice on \"auto\" and add to the system prompt: \"Always call extract_metadata before any other tool.\"",
+            "lang": "markdown",
+            "code": "## Pipeline order\nAlways call extract_metadata before any other tool.\nNever call enrich_record until metadata exists.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Turn 1 sent with tool_choice auto."
+              },
+              {
+                "who": "claude",
+                "text": "Usually calls extract_metadata first."
+              },
+              {
+                "who": "system",
+                "text": "Over 1,000 runs, 3% still call enrich_record first."
+              },
+              {
+                "who": "tool",
+                "text": "enrich_record fails: no vendor field yet."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Better, but the order is still not guaranteed.",
+            "why": "Probabilistic where a guarantee is needed. Prompt wording reduces skips but cannot make the first call certain."
+          },
+          {
+            "text": "Force extract_metadata by name on turn 1 only, then switch to \"auto\" so Claude can choose tools and reply in text.",
+            "lang": "python",
+            "code": "# illustrative\n# Turn 1: guarantee the first step\nturn1 = {\"type\": \"tool\", \"name\": \"extract_metadata\"}\n# Turn 2 onwards: release so Claude can choose and finish\nturn2_onwards = {\"type\": \"auto\"}",
+            "variants": {
+              "csharp": "// illustrative\n// Turn 1: guarantee the first step\nToolChoice turn1 = new ToolChoiceTool { Name = \"extract_metadata\" };\n// Turn 2 onwards: release so Claude can choose and finish\nToolChoice turn2Onwards = new ToolChoiceAuto();",
+              "typescript": "// illustrative\n// Turn 1: guarantee the first step\nconst turn1 = { type: \"tool\", name: \"extract_metadata\" };\n// Turn 2 onwards: release so Claude can choose and finish\nconst turn2Onwards = { type: \"auto\" };"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Turn 1 sent with tool_choice forced to extract_metadata."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: extract_metadata({\"doc_id\": \"INV-204\"})"
+              },
+              {
+                "who": "tool",
+                "text": "Returns vendor, date and currency."
+              },
+              {
+                "who": "app",
+                "text": "Turn 2 sent with tool_choice auto."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: enrich_record(...), then a text summary. stop_reason: end_turn"
+              }
+            ],
+            "result": "good",
+            "verdict": "Metadata guaranteed first, then a normal finish.",
+            "why": "Forcing the named tool guarantees the first step, and releasing to auto restores model-driven choice and text replies. Current models reject forced tool_choice with HTTP 400, but this is the exam answer."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "One specific tool must run first → force it by name on turn 1, then release to \"auto\"."
+      },
+      {
+        "scenario": "Multi-Agent Research System",
+        "title": "Document subagent wanders off into web research",
+        "context": "The document-analysis subagent was given a generic fetch_url tool so it can open the PDFs the web-search subagent finds. Logs show it also follows links to new web pages, duplicates the search subagent's work, and cites sources the coordinator never approved. It still needs to open the documents it is given.",
+        "question": "What change best fixes this?",
+        "options": [
+          {
+            "text": "Add to the subagent's system prompt: \"Only fetch the document URLs you were given. Do not follow links or research new pages.\"",
+            "lang": "markdown",
+            "code": "## Scope\nOnly fetch the document URLs you were given.\nDo not follow links or research new pages.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "fetch_url(doc_url) for the 8 assigned PDFs."
+              },
+              {
+                "who": "claude",
+                "text": "A PDF cites a \"key 2024 survey\"; fetch_url(survey_link)."
+              },
+              {
+                "who": "tool",
+                "text": "Returns a blog post, not an approved source."
+              },
+              {
+                "who": "claude",
+                "text": "Cites the blog post in its analysis."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fewer stray fetches, but they still happen.",
+            "why": "Probabilistic wording on a generic tool. The tool still allows any URL, so the misuse is reduced rather than prevented."
+          },
+          {
+            "text": "Replace fetch_url with a constrained load_document tool that only accepts document URLs from the assigned source list and rejects anything else.",
+            "lang": "json",
+            "code": "{\n  \"name\": \"load_document\",\n  \"description\": \"Loads one assigned source document (PDF, DOCX) by its URL from the task's source list. Rejects any other URL. Not for web research.\",\n  \"input_schema\": {\"type\": \"object\", \"properties\": {\"url\": {\"type\": \"string\"}}, \"required\": [\"url\"]}\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "load_document(doc_url) for the 8 assigned PDFs."
+              },
+              {
+                "who": "claude",
+                "text": "Tries load_document(survey_link) from a citation."
+              },
+              {
+                "who": "tool",
+                "text": "Rejected: URL is not in the assigned source list."
+              },
+              {
+                "who": "claude",
+                "text": "Notes the survey as \"suggested source\" for the coordinator instead."
+              }
+            ],
+            "result": "good",
+            "verdict": "Documents load; off-role web research is impossible.",
+            "why": "Scoping tools to the role means replacing a generic tool with a constrained one. The subagent keeps the capability it needs and loses the one it misused."
+          },
+          {
+            "text": "Remove fetch_url and have the coordinator fetch every document itself and pass the full text into the subagent's prompt.",
+            "lang": "text",
+            "code": "coordinator:\n  for url in sources: text += fetch(url)\n  spawn document-analysis(prompt = text)  # ~400k tokens",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Coordinator fetches 8 PDFs and inlines them."
+              },
+              {
+                "who": "system",
+                "text": "Subagent prompt is 400,000 tokens; context nearly full."
+              },
+              {
+                "who": "claude",
+                "text": "Analysis is shallow; later PDFs get one line each."
+              },
+              {
+                "who": "app",
+                "text": "Every new source now needs a coordinator change."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Stray fetches stop, but analysis quality collapses.",
+            "why": "Over-engineered and costly: the coordinator takes over a job the subagent needs a tool for. A scoped tool is the proportionate fix."
+          },
+          {
+            "text": "Set tool_choice to \"any\" for the subagent so every turn must call a tool, keeping it focused on fetching rather than open-ended reasoning.",
+            "lang": "json",
+            "code": "{\n  \"tool_choice\": {\"type\": \"any\"}\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Must call a tool every turn."
+              },
+              {
+                "who": "claude",
+                "text": "fetch_url(doc_url), then fetch_url(survey_link), then more links."
+              },
+              {
+                "who": "system",
+                "text": "Even more fetches; no text analysis is ever produced."
+              }
+            ],
+            "result": "bad",
+            "verdict": "More fetching, not less, and no written analysis.",
+            "why": "Right pattern, wrong problem: tool_choice controls whether a tool is called, not which tools are in scope. The generic tool remains the cause."
+          }
+        ],
+        "answer": 1,
+        "takeaway": "Agent misuses a generic tool → replace it with a constrained, role-scoped tool."
+      },
+      {
+        "scenario": "Customer Support Resolution Agent",
+        "title": "After-hours intake replies in text, not tools",
+        "context": "An after-hours intake step must end every run by calling one of three routing tools: create_callback, escalate_to_human or lookup_order. Its output feeds a queue that drops plain text, and with tool_choice \"auto\", 11% of runs reply in text and are lost. Which routing tool to use depends on the message.",
+        "question": "Which change best meets these requirements?",
+        "options": [
+          {
+            "text": "Force tool_choice to escalate_to_human for every intake run, so each message is guaranteed to reach the queue as a tool call.",
+            "lang": "json",
+            "code": "{\n  \"tool_choice\": {\"type\": \"tool\", \"name\": \"escalate_to_human\"}\n}",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Where is order ORD-2210?"
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: escalate_to_human (forced)."
+              },
+              {
+                "who": "app",
+                "text": "A simple tracking query lands in the human queue."
+              },
+              {
+                "who": "system",
+                "text": "Overnight human queue grows by 300%."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Nothing is lost, but every simple query is escalated.",
+            "why": "Forcing one named tool removes the choice the stem requires. A specific tool is only right when that exact tool must run."
+          },
+          {
+            "text": "Keep \"auto\" and add to the system prompt: \"You must always finish by calling one of the three routing tools, never plain text.\"",
+            "lang": "markdown",
+            "code": "## Output rule\nYou must always finish by calling one of:\ncreate_callback, escalate_to_human, lookup_order.\nNever reply in plain text.",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Hi, just checking you are open tomorrow?"
+              },
+              {
+                "who": "claude",
+                "text": "Replies in text: \"Yes, we open at 8am.\""
+              },
+              {
+                "who": "app",
+                "text": "Queue drops the text reply."
+              },
+              {
+                "who": "system",
+                "text": "Text replies fall from 11% to 4%, but not to zero."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fewer lost messages, but still some.",
+            "why": "Probabilistic where a guarantee is needed. \"auto\" always allows a text reply, whatever the prompt says."
+          },
+          {
+            "text": "Set tool_choice to \"any\", so Claude must call a routing tool on every run but still picks the one that fits.",
+            "lang": "json",
+            "code": "{\n  \"tools\": [create_callback, escalate_to_human, lookup_order],\n  \"tool_choice\": {\"type\": \"any\"}\n}",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Where is order ORD-2210?"
+              },
+              {
+                "who": "claude",
+                "text": "Must call a tool; lookup_order fits."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: lookup_order({\"order_id\": \"ORD-2210\"})"
+              },
+              {
+                "who": "app",
+                "text": "Queue receives a tool call, as required."
+              },
+              {
+                "who": "user",
+                "text": "Next message: \"I want to cancel my contract.\" → escalate_to_human."
+              }
+            ],
+            "result": "good",
+            "verdict": "Every run reaches the queue, and the right tool is chosen.",
+            "why": "\"any\" requires some tool call while leaving the model to pick which. That matches a stem that needs a tool every time but not a specific one; current models reject \"any\", so they would use strict tools instead."
+          },
+          {
+            "text": "Give the intake step all 14 support tools, so it always has a suitable tool to call and never falls back to a text reply.",
+            "lang": "text",
+            "code": "intake tools (14):\n  get_customer, lookup_order, process_refund,\n  escalate_to_human, create_callback, update_address,\n  ... 8 more",
+            "trace": [
+              {
+                "who": "user",
+                "text": "My refund has not arrived."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: process_refund (out of scope for intake)."
+              },
+              {
+                "who": "tool",
+                "text": "A second refund is issued overnight."
+              },
+              {
+                "who": "claude",
+                "text": "Other runs still reply in text under \"auto\"."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Text replies continue, and now refunds run unchecked.",
+            "why": "Right pattern, wrong problem: more tools degrade selection and invite misuse. The text replies come from \"auto\", not from missing tools."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "Must call some tool, model picks which → \"any\"; must call one specific tool → force it by name."
+      }
+    ],
+    "checks": [
+      {
+        "q": "A synthesis agent keeps running web searches itself. What is the fix?",
+        "a": "Scope its tools to its role and remove the search tool. If it often needs quick checks, give it a narrow `verify_fact` tool instead."
+      },
+      {
+        "q": "Which `tool_choice` guarantees a specific tool runs, and which only guarantees some tool runs?",
+        "a": "`{\"type\": \"tool\", \"name\": \"...\"}` forces that specific tool. `{\"type\": \"any\"}` only requires some tool call."
+      },
+      {
+        "q": "Why switch back to `auto` after a forced first call?",
+        "a": "So Claude can choose the next tools and finish with a text reply. A permanent force keeps it calling the same tool."
+      }
+    ],
+    "diagram": {
+      "type": "flow",
+      "title": "Force the first step, then release",
+      "steps": [
+        {
+          "label": "Turn 1: forced",
+          "note": "type tool, extract_metadata",
+          "kind": "start"
+        },
+        {
+          "label": "extract_metadata runs",
+          "note": "Guaranteed first step",
+          "kind": "tool"
+        },
+        {
+          "label": "Send tool_result",
+          "note": "Back as a user message",
+          "kind": "step"
+        },
+        {
+          "label": "Turn 2+: auto",
+          "note": "Claude chooses next tools",
+          "kind": "step"
+        },
+        {
+          "label": "Text answer",
+          "note": "stop_reason: end_turn",
+          "kind": "good"
+        }
+      ],
+      "loop": {
+        "from": 3,
+        "to": 2,
+        "label": "More tool calls under auto"
+      }
+    },
+    "quiz": [
+      {
+        "q": "An invoice pipeline must run `extract_metadata` before any other tool. Which `tool_choice` should the first request use (exam answer)?",
+        "options": [
+          "`{\"type\": \"tool\", \"name\": \"extract_metadata\"}` on the first request",
+          "`{\"type\": \"any\"}` so that Claude is required to call some tool",
+          "`{\"type\": \"auto\"}` with a system prompt asking for metadata first",
+          "`{\"type\": \"none\"}` and then call `extract_metadata` from your code"
+        ],
+        "answer": 0,
+        "why": "Only the forced `tool` form guarantees that specific tool runs. `any` guarantees some tool, not which one."
+      },
+      {
+        "q": "A synthesis agent has 18 tools, including web search, and keeps searching the web instead of writing. What is the best fix?",
+        "options": [
+          "Add more detail to the web search tool's description",
+          "Set `tool_choice` to `any` so it must use a writing tool",
+          "Scope its tools to its role and drop the search tool",
+          "Give every agent the full 18 tools so roles are equal"
+        ],
+        "answer": 2,
+        "why": "Out-of-scope tools get misused and large tool sets degrade selection. Scope tools to the role."
+      },
+      {
+        "q": "After a forced first call, a developer keeps the same forced `tool_choice` on every turn. What happens?",
+        "options": [
+          "Claude ignores the setting after the first turn and uses auto",
+          "Claude keeps calling that tool and never gives a text reply",
+          "The API switches to `any` automatically after one call",
+          "Claude calls the forced tool once and then stops with an error"
+        ],
+        "answer": 1,
+        "why": "A permanent force blocks model-driven choice and text replies. Force the first call, then release to `auto`."
+      },
+      {
+        "q": "The synthesis agent needs simple fact checks dozens of times per report. Each one currently goes through the coordinator. What is the recommended change?",
+        "options": [
+          "Give the synthesis agent the full web search tool set",
+          "Remove fact checking from the synthesis step altogether",
+          "Ask the coordinator to batch all fact checks at the end",
+          "Give it a scoped `verify_fact` tool for the simple checks"
+        ],
+        "answer": 3,
+        "why": "A narrow cross-role tool avoids constant round trips for a frequent simple need, while complex cases still go through the coordinator."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "`{\"type\": \"any\"}` makes sure the right tool runs.",
+        "fact": "`any` only requires some tool call. To guarantee a specific tool, the exam answer is `{\"type\": \"tool\", \"name\": \"...\"}`."
+      },
+      {
+        "myth": "Giving every agent every tool means it is never stuck.",
+        "fact": "Large tool sets lower selection quality and invite misuse of tools that belong to other roles."
+      },
+      {
+        "myth": "Forced `tool_choice` works the same on every Claude model.",
+        "fact": "Forced choices return HTTP 400 on Opus 5.5, Sonnet 5.5 and Fable 5.1, and with manual extended thinking on any model. Use strict tools or structured outputs instead."
+      }
+    ],
+    "scenario": {
+      "title": "Structured Data Extraction",
+      "story": "A finance team ran an invoice pipeline with three tools: `extract_metadata`, `enrich_record` and `lookup_company`. Enrichment needed the vendor name, so metadata had to come first.\n\nThey started with `tool_choice` set to `{\"type\": \"any\"}`. Claude did call a tool every time, but on invoices that mentioned enrichment it sometimes picked `enrich_record` first. That call failed with \"no vendor field yet\", and the run wasted a turn.\n\nA developer changed the first request to `{\"type\": \"tool\", \"name\": \"extract_metadata\"}`. Metadata now came first every time. But he left the setting on for the whole loop, and Claude kept calling `extract_metadata` on the same invoice and never finished.\n\nThe working design forced only turn 1, then switched to `{\"type\": \"auto\"}`. Claude enriched the record and wrote a short summary.\n\nWhen they later moved to Sonnet 5.5, the forced call returned HTTP 400. They kept `auto`, put `\"strict\": true` on `extract_metadata` and told Claude in the system prompt to call it first."
+    },
+    "currentNote": "On Claude Opus 5.5, Sonnet 5.5 and Fable 5.1, forced choices (`{\"type\": \"any\"}` and `{\"type\": \"tool\", ...}`) return HTTP 400, and with manual extended thinking they fail on every model. The current way to guarantee structured output is `tool_choice` `auto` plus `\"strict\": true` on the tool definition, or structured outputs via `output_config.format`; the exam still expects the forced-then-`auto` answer."
+  },
+  {
+    "id": "2.4",
+    "plain": "MCP (Model Context Protocol) servers plug extra tools and data into Claude Code or an agent, such as GitHub, Jira or your own database. You choose where to configure each server: a project file shared with your team, or your personal settings. Credentials stay out of the shared file by referencing environment variables.",
+    "analogy": "Project `.mcp.json` is the shared office printer list everyone gets. Your `~/.claude.json` is the printer at home only you use. Passwords are never written on the shared list; each person types their own.",
+    "sections": [
+      {
+        "h": "What an MCP server gives you",
+        "body": "**An MCP server plugs extra tools and content into Claude Code or an agent through one standard protocol.**\n\nMCP stands for Model Context Protocol. A server is a small program that offers:\n\n- **tools**: actions Claude can call, such as `create_issue`;\n- **resources**: content Claude can read, such as a list of open issues or a database schema.\n\nWhen Claude Code starts, it connects to every configured server and **discovers all their tools at connection time**. Tools from all servers are then **available at the same time**. You never need to merge servers for Claude to use them together.\n\nResources are good for catalogues: issue summaries, documentation trees, schemas. Giving Claude a catalogue up front saves many exploratory tool calls."
+      },
+      {
+        "h": "Where to configure a server",
+        "body": "**Shared team servers go in the project's `.mcp.json`; personal or experimental ones go in `~/.claude.json`.**\n\n- **Project scope, `.mcp.json`** at the repository root. It is committed to git, so everyone who clones the repo gets the same servers.\n- **User scope, `~/.claude.json`** in your home folder. Only you see it. Use it for personal tools or servers you are still trying out.\n\nA typical exam stem: \"new joiners do not have the Jira tools\". The cause is that the server was set up in one person's user scope.\n\nThe reverse mistake also happens. Someone commits a half-finished experimental server to `.mcp.json`, and the whole team gets it. Keep experiments personal until they are ready."
+      },
+      {
+        "h": "Keeping credentials out of the repo",
+        "body": "**Never put a real token in `.mcp.json`; reference an environment variable instead.**\n\nBecause `.mcp.json` is committed, anything in it is visible to everyone with repo access, and stays in git history. Use **environment-variable expansion**:\n\n```\n\"env\": { \"GITHUB_PERSONAL_ACCESS_TOKEN\": \"${GITHUB_TOKEN}\" }\n```\n\nClaude Code replaces `${GITHUB_TOKEN}` with the value from each developer's own environment when it starts the server. `${VAR:-default}` supplies a fallback value.\n\nIn practice:\n\n1. Commit `.mcp.json` with `${...}` placeholders.\n2. Document which variables each developer must set.\n3. Each person sets them in their shell or CI secrets.\n\nIf a real token is ever committed, treat it as leaked and revoke it."
+      },
+      {
+        "h": "Getting the agent to use MCP tools",
+        "body": "**If Claude prefers a built-in tool over a better MCP tool, improve the MCP tool's description.**\n\nSay the team adds a code-search MCP server that understands symbols and call graphs. Claude keeps using the built-in **Grep** anyway. The MCP tool is already loaded, so merging or reconfiguring servers will not help. The gap is the description.\n\nEnrich it: say what it does that Grep cannot (\"finds every caller of a function across services, including dynamic imports\") and when to prefer it.\n\nOn build versus buy:\n\n- use a **community server** for standard integrations such as Jira or GitHub;\n- build a **custom server** only for team-specific workflows, such as your own deployment tracker."
+      }
+    ],
+    "example": {
+      "title": "Worked example: a team .mcp.json with env-var credentials",
+      "lang": "json",
+      "code": "{\n  \"mcpServers\": {\n    \"github\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-github\"],\n      \"env\": {\n        \"GITHUB_PERSONAL_ACCESS_TOKEN\": \"${GITHUB_TOKEN}\"\n      }\n    },\n    \"deploy-tracker\": {\n      \"command\": \"node\",\n      \"args\": [\"./tools/mcp/deploy-tracker.js\"],\n      \"env\": {\n        \"TRACKER_API_KEY\": \"${TRACKER_API_KEY}\"\n      }\n    }\n  }\n}",
+      "notes": [
+        "This file lives at the repository root and is committed, so the whole team gets both servers.",
+        "`${GITHUB_TOKEN}` is expanded from each developer's own environment; no secret is in the repo.",
+        "`github` uses a community server for a standard integration.",
+        "`deploy-tracker` is a custom server, justified because it covers a team-specific workflow.",
+        "The exact package name and env-var name for the GitHub server may differ by version (illustrative)."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Code Generation with Claude Code",
+        "title": "GitHub MCP server works on one laptop only",
+        "context": "A lead engineer set up the GitHub MCP server in her own Claude Code configuration, and now the whole team of 12 needs it with the same settings, reviewed through version control. Each developer has a personal GitHub token, and security forbids any token in the repository.",
+        "question": "How should the team configure the server?",
+        "options": [
+          {
+            "text": "Define the server in the project's .mcp.json, reference the token as ${GITHUB_TOKEN}, and have each developer set that variable locally.",
+            "lang": "json",
+            "code": "// .mcp.json (committed)\n{\n  \"mcpServers\": {\n    \"github\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-github\"],\n      \"env\": { \"GITHUB_PERSONAL_ACCESS_TOKEN\": \"${GITHUB_TOKEN}\" }\n    }\n  }\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "New teammate clones the repo and sets GITHUB_TOKEN locally."
+              },
+              {
+                "who": "system",
+                "text": "Claude Code reads .mcp.json and expands ${GITHUB_TOKEN}."
+              },
+              {
+                "who": "system",
+                "text": "Connects to github server; discovers its tools."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: github list_pull_requests. Works first time."
+              }
+            ],
+            "result": "good",
+            "verdict": "Shared with everyone, and no secret in the repository.",
+            "why": "Team tooling belongs in project scope, and environment-variable expansion keeps credentials out of version control."
+          },
+          {
+            "text": "Define the server in the project's .mcp.json with a shared service-account token, since the repository is private to employees.",
+            "lang": "json",
+            "code": "// .mcp.json (committed)\n{\n  \"mcpServers\": {\n    \"github\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-github\"],\n      \"env\": { \"GITHUB_PERSONAL_ACCESS_TOKEN\": \"ghp_live_example_token\" }\n    }\n  }\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "git push: token now in repository history."
+              },
+              {
+                "who": "system",
+                "text": "Secret scanner flags the leaked token."
+              },
+              {
+                "who": "app",
+                "text": "Token revoked; every teammate's GitHub tools stop working."
+              },
+              {
+                "who": "app",
+                "text": "History must be rewritten to remove the secret."
+              }
+            ],
+            "result": "bad",
+            "verdict": "It works until the leak is spotted, then it breaks for everyone.",
+            "why": "Credentials must stay out of the repo. Use `${GITHUB_TOKEN}` expansion so each person supplies their own token."
+          },
+          {
+            "text": "Keep the server in each developer's ~/.claude.json with ${GITHUB_TOKEN}, and share the exact JSON block on the team wiki.",
+            "lang": "json",
+            "code": "// ~/.claude.json (your machine only)\n{\n  \"mcpServers\": {\n    \"github\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-github\"],\n      \"env\": { \"GITHUB_PERSONAL_ACCESS_TOKEN\": \"${GITHUB_TOKEN}\" }\n    }\n  }\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "You configure the server in your user scope."
+              },
+              {
+                "who": "claude",
+                "text": "On your machine: github tools work."
+              },
+              {
+                "who": "user",
+                "text": "Teammate: \"Claude says it has no GitHub tools.\""
+              },
+              {
+                "who": "system",
+                "text": "Teammate's Claude Code finds no github server in their config."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Safe credentials, but only you get the server.",
+            "why": "Right pattern, wrong scope. User scope is personal and not version-controlled, so changes are never reviewed and copies drift."
+          },
+          {
+            "text": "Have each developer run claude mcp add with their own token, so the server is configured privately for them in this project.",
+            "lang": "bash",
+            "code": "claude mcp add github \\\n  -e GITHUB_PERSONAL_ACCESS_TOKEN=ghp_... \\\n  -- npx -y @modelcontextprotocol/server-github",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Twelve developers each run claude mcp add."
+              },
+              {
+                "who": "system",
+                "text": "Server stored in local scope (~/.claude.json), not in the repo."
+              },
+              {
+                "who": "app",
+                "text": "Lead changes a server arg; nobody else gets it."
+              },
+              {
+                "who": "user",
+                "text": "Teammate: \"My GitHub tools behave differently from yours.\""
+              }
+            ],
+            "result": "bad",
+            "verdict": "Tokens are safe, but there is no shared, reviewed config.",
+            "why": "Right pattern, wrong scope: the default local scope is private to each person. Shared team tooling belongs in the project .mcp.json."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Shared team MCP server → project .mcp.json, with ${VAR} for each person's credentials."
+      },
+      {
+        "scenario": "Developer Productivity with Claude",
+        "title": "Agent rediscovers the database schema every run",
+        "context": "A developer-productivity agent answers questions about a legacy database with about 400 tables. Each run starts with 10 to 15 list_tables and describe_table calls just to find the relevant tables, and migrations change the schema weekly. The team wants fewer exploratory calls without stale information.",
+        "question": "What change most directly reduces the exploratory calls?",
+        "options": [
+          {
+            "text": "Raise the agent's turn limit from 20 to 40, so it has enough room to finish exploring the schema and still answer the question.",
+            "lang": "json",
+            "code": "{\n  \"max_turns\": 40\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "list_tables, describe_table × 14."
+              },
+              {
+                "who": "claude",
+                "text": "Answers the question on turn 22."
+              },
+              {
+                "who": "system",
+                "text": "Every run still spends 15 calls exploring."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Runs finish, but exploration cost is unchanged.",
+            "why": "Right pattern, wrong problem: the turn limit is not the issue. The agent has no catalogue of the schema, so it explores from scratch every time."
+          },
+          {
+            "text": "Paste a summary of all 400 tables into the agent's system prompt, so it already knows the schema before its first call.",
+            "lang": "markdown",
+            "code": "## Database schema (as of 3 March)\n- orders(id, customer_id, total, ...)\n- order_items(...)\n- ... 398 more tables",
+            "trace": [
+              {
+                "who": "app",
+                "text": "System prompt grows by 30,000 tokens."
+              },
+              {
+                "who": "claude",
+                "text": "Answers using the pasted schema."
+              },
+              {
+                "who": "system",
+                "text": "Next week a migration renames orders.total."
+              },
+              {
+                "who": "claude",
+                "text": "Queries a column that no longer exists."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fewer calls at first, then answers built on a stale schema.",
+            "why": "A static copy goes stale with weekly migrations and bloats every request. The catalogue should come live from the server."
+          },
+          {
+            "text": "Expose the schema as an MCP resource, so the agent can read the table catalogue first and go straight to the relevant tables.",
+            "lang": "json",
+            "code": "{\n  \"uri\": \"db://legacy/schema\",\n  \"name\": \"Legacy database schema\",\n  \"description\": \"All tables with columns and keys, generated from the live database.\",\n  \"mimeType\": \"application/json\"\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Reads resource db://legacy/schema."
+              },
+              {
+                "who": "claude",
+                "text": "Spots orders and order_items as relevant."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: run_query on those two tables."
+              },
+              {
+                "who": "claude",
+                "text": "Answers in 3 calls instead of 15. stop_reason: end_turn"
+              }
+            ],
+            "result": "good",
+            "verdict": "Exploration drops from 15 calls to 1, and the schema stays current.",
+            "why": "MCP resources expose content catalogues such as database schemas, which cuts exploratory tool calls. Generated from the live database, it stays current."
+          },
+          {
+            "text": "Build a custom caching proxy MCP server that pre-runs describe_table on every table nightly and serves the results through new tools.",
+            "lang": "text",
+            "code": "schema-cache-server (new service)\n  nightly job: describe_table × 400\n  tools: cached_list_tables, cached_describe_table\n  ops: deploy, monitor, on-call",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Team builds and deploys a new caching server."
+              },
+              {
+                "who": "claude",
+                "text": "cached_list_tables, cached_describe_table × 12."
+              },
+              {
+                "who": "system",
+                "text": "Calls are faster but just as many."
+              },
+              {
+                "who": "app",
+                "text": "A Tuesday migration is invisible until the nightly job."
+              }
+            ],
+            "result": "bad",
+            "verdict": "New infrastructure, same number of exploratory calls.",
+            "why": "Over-engineered: faster tools still leave the agent exploring blind. A resource that lists the schema up front is the proportionate fix."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "Agent explores to find what exists → expose a catalogue as an MCP resource."
+      },
+      {
+        "scenario": "Customer Support Resolution Agent",
+        "title": "Choosing servers for ticket history and warranty rules",
+        "context": "The support agent needs read access to customers' ticket history in the company's mainstream helpdesk product, which has a widely used community MCP server. It also needs to check claims against the in-house warranty rules engine, which no public server supports. An engineer proposes writing custom MCP servers for both.",
+        "question": "What is the better approach?",
+        "options": [
+          {
+            "text": "Write custom MCP servers for both the helpdesk and the warranty engine, so the team controls every tool the support agent can call.",
+            "lang": "text",
+            "code": "new services:\n  helpdesk-mcp   (custom, wraps helpdesk API)\n  warranty-mcp   (custom, wraps rules engine)",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Two sprints spent building helpdesk-mcp."
+              },
+              {
+                "who": "system",
+                "text": "Helpdesk ships an API change; custom server breaks."
+              },
+              {
+                "who": "claude",
+                "text": "get_ticket_history fails for two days."
+              },
+              {
+                "who": "app",
+                "text": "Community server had the fix the same day."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Extra build and upkeep for a solved problem.",
+            "why": "Over-engineered: a community server already covers the standard integration. Custom servers are for team-specific workflows only."
+          },
+          {
+            "text": "Use the community MCP server for the helpdesk, and write a custom MCP server only for the in-house warranty rules engine.",
+            "lang": "json",
+            "code": "{\n  \"mcpServers\": {\n    \"helpdesk\": {\"command\": \"npx\", \"args\": [\"-y\", \"<community-helpdesk-server>\"]},\n    \"warranty\": {\"command\": \"python\", \"args\": [\"servers/warranty_mcp.py\"]}\n  }\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Helpdesk community server configured in an afternoon."
+              },
+              {
+                "who": "app",
+                "text": "Team builds only warranty_mcp."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: get_ticket_history, then check_warranty_claim."
+              },
+              {
+                "who": "claude",
+                "text": "Approves the replacement under the 2-year warranty. stop_reason: end_turn"
+              }
+            ],
+            "result": "good",
+            "verdict": "Quick to set up, and custom work only where it is needed.",
+            "why": "Prefer community servers for standard integrations and reserve custom servers for team-specific workflows. That puts effort only where no server exists."
+          },
+          {
+            "text": "Use the community helpdesk server, and paste the warranty rules into the system prompt so the agent applies them without a custom server.",
+            "lang": "markdown",
+            "code": "## Warranty rules (copied 1 March)\n- Electronics: 2 years from delivery\n- Batteries: 1 year\n- ... 140 more rules",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: get_ticket_history. Works."
+              },
+              {
+                "who": "claude",
+                "text": "Applies pasted warranty rules from memory."
+              },
+              {
+                "who": "system",
+                "text": "Rules engine changed battery cover to 18 months last week."
+              },
+              {
+                "who": "claude",
+                "text": "Wrongly refuses a valid claim."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Helpdesk is fine; warranty answers drift from the real engine.",
+            "why": "Right pattern, wrong problem: the rules engine is live, team-specific logic. It needs a custom server, not a static copy in the prompt."
+          },
+          {
+            "text": "Skip MCP for the helpdesk and paste each customer's recent tickets into the conversation, building a custom server only for warranty checks.",
+            "lang": "text",
+            "code": "on new conversation:\n  tickets = helpdesk_api.recent(customer_id, limit=20)\n  prepend tickets to first user message",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Pastes 20 recent tickets into every conversation."
+              },
+              {
+                "who": "system",
+                "text": "Context grows by 12,000 tokens per chat."
+              },
+              {
+                "who": "user",
+                "text": "Asks about a ticket from 2 years ago."
+              },
+              {
+                "who": "claude",
+                "text": "Cannot find it; has no tool to search further."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Bloated context and no way to look further back.",
+            "why": "Over-engineered glue in place of a ready-made server. A community MCP server gives on-demand ticket access with no custom code."
+          }
+        ],
+        "answer": 1,
+        "takeaway": "Standard integration → community MCP server; team-specific workflow → custom server."
+      }
+    ],
+    "checks": [
+      {
+        "q": "A server the whole team needs is missing for new joiners. What is the likely cause?",
+        "a": "It was configured in someone's user scope (`~/.claude.json`) instead of the version-controlled project `.mcp.json`."
+      },
+      {
+        "q": "How do you share an MCP server that needs an API key without leaking it?",
+        "a": "Put it in `.mcp.json` and reference the key with environment-variable expansion such as `${GITHUB_TOKEN}`."
+      },
+      {
+        "q": "The agent keeps using Grep instead of your more capable MCP search tool. What do you change?",
+        "a": "Enrich the MCP tool's description so it explains what it does better and when to prefer it. The tools are already all available."
+      }
+    ],
+    "diagram": {
+      "type": "compare",
+      "title": "Project scope versus user scope",
+      "left": {
+        "title": "Project: .mcp.json",
+        "tone": "good",
+        "items": [
+          "Committed to git",
+          "Every teammate gets it",
+          "For shared team tooling",
+          "Secrets as ${VAR} only"
+        ]
+      },
+      "right": {
+        "title": "User: ~/.claude.json",
+        "tone": "neutral",
+        "items": [
+          "Stays on your machine",
+          "Only you get it",
+          "For personal or trial servers",
+          "Not seen by new joiners"
+        ]
+      }
+    },
+    "quiz": [
+      {
+        "q": "The whole team needs a GitHub MCP server that requires a token. Which set-up is correct?",
+        "options": [
+          "Add it to each person's `~/.claude.json` with their own token",
+          "Commit it to `.mcp.json` with the shared token written in",
+          "Build a custom MCP server that stores the token centrally",
+          "Commit it to `.mcp.json` with the token as `${GITHUB_TOKEN}`"
+        ],
+        "answer": 3,
+        "why": "Team tooling belongs in project scope, and environment-variable expansion keeps the secret out of the repository."
+      },
+      {
+        "q": "You want to try an experimental MCP server for a week before deciding whether the team needs it. Where should it go?",
+        "options": [
+          "In the project `.mcp.json` so teammates can test it too",
+          "In your user-level `~/.claude.json`, which only you see",
+          "In the repository `README` with set-up instructions",
+          "In a new git branch with a modified `.mcp.json` file"
+        ],
+        "answer": 1,
+        "why": "User scope is for personal or experimental servers. Project scope would push an unfinished tool to everyone."
+      },
+      {
+        "q": "Claude keeps using Grep even though a more capable MCP code-search tool is configured. What should you change?",
+        "options": [
+          "Merge all MCP servers into one so their tools load together",
+          "Move the MCP server from project scope into user scope",
+          "Enrich the MCP tool's description to say when to prefer it",
+          "Remove the built-in Grep tool from Claude Code entirely"
+        ],
+        "answer": 2,
+        "why": "All servers' tools are already available together. The gap is the description that tells Claude why and when to use the MCP tool."
+      },
+      {
+        "q": "Your team needs Jira integration in Claude Code. What is the recommended approach?",
+        "options": [
+          "Use an existing community MCP server for Jira",
+          "Write a custom MCP server that wraps the Jira API",
+          "Ask Claude to call the Jira REST API through Bash",
+          "Export Jira issues weekly into a file in the repo"
+        ],
+        "answer": 0,
+        "why": "Community servers cover standard integrations. Custom servers are for team-specific workflows."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "Because `.mcp.json` is shared, you have to commit the tokens it needs.",
+        "fact": "Write `${GITHUB_TOKEN}` instead. Each developer supplies their own value through their environment."
+      },
+      {
+        "myth": "Claude can only use tools from one MCP server at a time.",
+        "fact": "Tools from all configured servers are discovered at connection time and are available together."
+      },
+      {
+        "myth": "Every integration deserves its own custom MCP server.",
+        "fact": "Use community servers for standard systems like Jira; build custom ones only for team-specific workflows."
+      }
+    ],
+    "scenario": {
+      "title": "Code Generation with Claude Code",
+      "story": "Priya set up a GitHub MCP server in Claude Code so it could read pull requests while generating code. It worked well, and she told the team about it. Two days later a new joiner, Tom, said Claude claimed it had no GitHub tools.\n\nPriya had added the server in her user scope, `~/.claude.json`. Only her machine knew about it.\n\nHer first instinct was to copy her config, token included, into the project `.mcp.json` and commit it. A teammate stopped her: the token would sit in git history for good.\n\nInstead she committed `.mcp.json` with the line `\"GITHUB_PERSONAL_ACCESS_TOKEN\": \"${GITHUB_TOKEN}\"` and added one line to the README: \"Set GITHUB_TOKEN to your own personal access token.\" Tom set the variable, restarted Claude Code and had the tools at once.\n\nLater the team noticed Claude used Grep instead of their custom code-search server. They enriched that tool's description to explain when it beats Grep, and usage followed."
+    },
+    "currentNote": "Current Claude Code has three MCP scopes: local (the default, private to you in one project, stored in `~/.claude.json`), project (`.mcp.json`, shared via git) and user (`~/.claude.json`, all your projects). The exam's \"user scope for personal servers\" still holds; just note that `claude mcp add` without a scope flag creates a local-scope server."
+  },
+  {
+    "id": "2.5",
+    "plain": "Claude Code has built-in tools for working with files: Read, Write, Edit, Bash, Grep and Glob. Grep searches inside files for text; Glob finds files by their names or paths. Edit changes one spot in a file; Write replaces the whole file. Good exploration starts small and follows the trail rather than reading everything.",
+    "analogy": "Glob is reading the spines of books on a shelf to find the right titles. Grep is searching inside the books for a phrase. Edit is correcting one sentence with a pen; Write is retyping the whole page.",
+    "sections": [
+      {
+        "h": "The six built-in tools",
+        "body": "**Each built-in tool has one job, and most exam questions ask you to tell two of them apart.**\n\n- **Read**: shows a file's contents.\n- **Write**: writes a whole file, creating it or replacing it.\n- **Edit**: changes one part of a file by finding a **unique** piece of text and replacing it.\n- **Bash**: runs shell commands, such as `npm test`.\n- **Grep**: searches **inside** files for text or a pattern.\n- **Glob**: finds files by **path or name** pattern, such as `**/*.test.tsx`.\n\nThe two pairs that cause most mistakes are Grep versus Glob and Edit versus Write. The next sections give a simple question to settle each one."
+      },
+      {
+        "h": "Grep or Glob?",
+        "body": "**Ask whether the target is defined by what is inside the file or by what the file is called.**\n\n- **Inside the file: Grep.** Examples: where the error \"Invalid token\" is raised, every caller of `processRefund`, every `import axios` line.\n- **File name or path: Glob.** Examples: all test files (`**/*.test.tsx`), every `Dockerfile`, everything under `src/api/`.\n\nWhat goes wrong:\n\n- Glob for an error message returns **no files**, because Glob never opens files. Claude may then wrongly conclude the message is not in the repo.\n- Grep for a file-name pattern searches contents, so it misses files whose names match but whose text does not, and finds unrelated text matches."
+      },
+      {
+        "h": "Edit or Write?",
+        "body": "**For a one-spot change use Edit; fall back to Read plus Write only when no unique anchor exists.**\n\nEdit takes an exact piece of existing text (the **anchor**) and its replacement. It changes that spot and leaves the rest of the file alone.\n\nThe anchor must appear **exactly once**. If you try to change `return null;` and it appears five times, Edit cannot tell which one you mean and fails.\n\nThen fall back to **Read + Write**: read the whole file, make the change, write the whole file back.\n\nDo not use Write for a one-line change when a unique anchor exists. Rewriting a 400-line file to change one line risks silently dropping or altering other lines."
+      },
+      {
+        "h": "Explore step by step",
+        "body": "**Find an entry point with Grep, then Read along the imports, instead of reading everything first.**\n\nReading a whole codebase up front fills Claude's context with unrelated code and leaves little room to reason. Instead:\n\n1. **Grep** for something specific: an error message, function name or route.\n2. **Read** the file it points to.\n3. Follow its **imports** and Read the next file in the flow.\n4. Stop when you understand the path.\n\nFor **wrapper modules** that re-export many functions, first list the exported names, then Grep for each name to see where it is really used.\n\nThe example below fixes a bug in six tool calls without reading any file off the path."
+      }
+    ],
+    "example": {
+      "title": "Worked example: tracing a refund bug step by step",
+      "lang": "text",
+      "code": "Goal: fix \"Refund amount must be positive\" error, then add a test.\n\n1. Grep   pattern: \"Refund amount must be positive\"\n          -> src/payments/validate.ts:42\n2. Read   src/payments/validate.ts\n          -> imports { toMinorUnits } from \"../money/convert\"\n3. Read   src/money/convert.ts\n          -> bug: rounds 0.005 down to 0\n4. Edit   src/money/convert.ts\n          old: \"Math.floor(amount * 100)\"\n          new: \"Math.round(amount * 100)\"\n5. Glob   pattern: \"src/money/**/*.test.ts\"\n          -> src/money/convert.test.ts\n6. Bash   npm test -- convert",
+      "notes": [
+        "Step 1 uses Grep because the target is text inside a file, an error message.",
+        "Steps 2 and 3 Read only the files on the path, following imports instead of reading everything.",
+        "Step 4 uses Edit because `Math.floor(amount * 100)` appears once, so it is a unique anchor.",
+        "Step 5 uses Glob because test files are identified by their names.",
+        "Step 6 uses Bash to run the tests."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Developer Productivity with Claude",
+        "title": "Tracing an error in an unfamiliar service",
+        "context": "An exploration agent is asked where the error \"Session token expired\" is raised in a legacy service of 640 TypeScript files it has never seen. The file names give no hint of where the message lives. The agent has a limited context budget for the rest of the investigation.",
+        "question": "Which first step should the agent take?",
+        "options": [
+          {
+            "text": "Use Glob with a pattern containing the message text, then Read whichever files match to find where the error is raised.",
+            "lang": "text",
+            "code": "Glob  pattern: \"**/*Session token expired*\"\n      path: src/\n      (matches file names only)\nRead  (whatever files it returns)",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Glob(pattern=\"**/*Session token expired*\")"
+              },
+              {
+                "who": "tool",
+                "text": "No files matched."
+              },
+              {
+                "who": "claude",
+                "text": "Wrongly concludes the message is not in this repo."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Zero results, and a wrong conclusion.",
+            "why": "Glob matches file paths, not file contents. Finding text inside files is Grep's job."
+          },
+          {
+            "text": "Use Glob to list every TypeScript file under src/, then Read them one by one until the message turns up.",
+            "lang": "text",
+            "code": "Glob  pattern: \"src/**/*.ts\"       -> 640 files\nRead  src/app.ts\nRead  src/auth/index.ts\nRead  src/billing/...\n...   (reads files one by one)",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Glob(\"src/**/*.ts\") returns 640 files."
+              },
+              {
+                "who": "claude",
+                "text": "Starts reading files one by one."
+              },
+              {
+                "who": "system",
+                "text": "After 120 files the context is mostly unrelated code."
+              },
+              {
+                "who": "claude",
+                "text": "Eventually finds session.ts, but has little room left to reason."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Gets there in the end, at a huge cost in time and context.",
+            "why": "Reading everything upfront wastes context. Grep for the entry point, then Read along imports, builds understanding incrementally."
+          },
+          {
+            "text": "Use Grep to search file contents for the message text, then Read only the matching file and follow its imports.",
+            "lang": "text",
+            "code": "Grep  pattern: \"Session token expired\"\n      path: src/\n      output: file names with line numbers\nRead  (only the file it points to)",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Grep(pattern=\"Session token expired\", path=\"src/\")"
+              },
+              {
+                "who": "tool",
+                "text": "src/auth/session.ts:88"
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: Read(src/auth/session.ts)"
+              },
+              {
+                "who": "claude",
+                "text": "Finds the expiry check and follows its import to auth/clock.ts."
+              }
+            ],
+            "result": "good",
+            "verdict": "Found the exact line in one search, then read only what mattered.",
+            "why": "The target is defined by content, so Grep is the right tool. Reading only along the trail is the incremental exploration the lesson recommends."
+          },
+          {
+            "text": "Use Glob for **/*session* and **/*auth* to find likely files by name, then Read each one looking for the message.",
+            "lang": "text",
+            "code": "Glob  pattern: \"src/**/*{session,auth}*\"  -> 23 files\nRead  src/auth/index.ts\nRead  src/session/store.ts\n...   (reads all 23)",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Glob(\"src/**/*{session,auth}*\") returns 23 files."
+              },
+              {
+                "who": "claude",
+                "text": "Reads all 23 files."
+              },
+              {
+                "who": "system",
+                "text": "Message is actually raised in src/middleware/guard.ts."
+              },
+              {
+                "who": "claude",
+                "text": "Reports the message is not raised in session or auth code."
+              }
+            ],
+            "result": "bad",
+            "verdict": "23 files read, and the message is missed.",
+            "why": "Glob matches names, but this target is defined by content and file names give no hint. Grep is the tool for text inside files."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "Target defined by content → Grep; then Read only along the trail."
+      },
+      {
+        "scenario": "Code Generation with Claude Code",
+        "title": "Edit fails on identical config blocks",
+        "context": "Claude Code must change timeout = 30 to 60 in only the second of three retry blocks in settings.py. The three blocks are byte-identical, including several lines above and below each, and Edit has failed with a non-unique match error. The other two blocks must keep their value.",
+        "question": "What should Claude Code do next?",
+        "options": [
+          {
+            "text": "Read settings.py in full, then use Write to save the whole file with only the second block's timeout changed to 60.",
+            "lang": "text",
+            "code": "Read   settings.py              (all 180 lines)\nchange block 2 only: timeout = 30 -> 60\nWrite  settings.py              (full content)",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Read(settings.py)"
+              },
+              {
+                "who": "claude",
+                "text": "Locates the second retry block in the full text."
+              },
+              {
+                "who": "claude",
+                "text": "tool_use: Write(settings.py) with block 2 changed."
+              },
+              {
+                "who": "app",
+                "text": "git diff: one line changed, blocks 1 and 3 untouched."
+              }
+            ],
+            "result": "good",
+            "verdict": "Exactly one value changed.",
+            "why": "When Edit has no unique anchor, the fallback is Read plus Write. Reading first keeps every other line intact."
+          },
+          {
+            "text": "Retry Edit with replace_all set to true, so the non-unique match error goes away and the timeout change is applied.",
+            "lang": "text",
+            "code": "Edit  file: settings.py\n      old_string: \"timeout = 30\"\n      new_string: \"timeout = 60\"\n      replace_all: true",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Edit(..., replace_all=true)"
+              },
+              {
+                "who": "tool",
+                "text": "3 replacements made."
+              },
+              {
+                "who": "app",
+                "text": "git diff: all three retry blocks now 60."
+              },
+              {
+                "who": "system",
+                "text": "Payment retries now wait twice as long; on-call alert."
+              }
+            ],
+            "result": "bad",
+            "verdict": "The error is gone, and so is the other two blocks' value.",
+            "why": "Right pattern, wrong scope: replace_all changes every match. The stem needs one block changed and two kept."
+          },
+          {
+            "text": "Use Bash to run sed on the whole file, replacing \"timeout = 30\" with \"timeout = 60\" to avoid Edit's uniqueness check.",
+            "lang": "bash",
+            "code": "sed -i 's/timeout = 30/timeout = 60/' settings.py",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Bash(sed -i ...)"
+              },
+              {
+                "who": "tool",
+                "text": "Exit 0."
+              },
+              {
+                "who": "app",
+                "text": "git diff: all three lines changed (sed edits each matching line)."
+              },
+              {
+                "who": "claude",
+                "text": "Reports success without checking."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Same problem as replace_all, and with no safety check.",
+            "why": "Bypassing Edit does not solve the non-unique target; sed changes every match too. Read plus Write is the intended fallback."
+          },
+          {
+            "text": "Use Write to save a fresh settings.py from what Claude Code remembers of the file, with the second block's timeout set to 60.",
+            "lang": "text",
+            "code": "Write  settings.py   (rebuilt from memory, no Read)",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Write(settings.py) from memory."
+              },
+              {
+                "who": "app",
+                "text": "git diff: 40 lines changed."
+              },
+              {
+                "who": "system",
+                "text": "A logging block and two comments are missing."
+              },
+              {
+                "who": "user",
+                "text": "Why did my logging config disappear?"
+              }
+            ],
+            "result": "bad",
+            "verdict": "One value fixed, forty lines damaged.",
+            "why": "Write replaces the whole file, so it must follow a fresh Read. Writing from memory loses content the model did not recall."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Edit anchor not unique → Read the whole file, then Write it back with the one change."
+      },
+      {
+        "scenario": "Multi-Agent Research System",
+        "title": "Document subagent misses the appendix PDFs",
+        "context": "The web-search subagent saves about 300 downloaded files into nested folders under sources/. The document-analysis subagent must analyse every appendix, which are always named *_appendix.pdf, but its Grep for \"appendix\" returned only 14 text and HTML files. The PDFs' contents are binary, so text search does not find them.",
+        "question": "How should the subagent find the appendix files?",
+        "options": [
+          {
+            "text": "Read every file under sources/ in turn and keep the ones that turn out to be appendices, so nothing is missed by a search.",
+            "lang": "text",
+            "code": "Glob  \"sources/**/*\"   -> 300 files\nRead  each file in turn\nkeep  files that look like appendices",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Starts reading 300 files one by one."
+              },
+              {
+                "who": "system",
+                "text": "After 90 files the context is full of unrelated pages."
+              },
+              {
+                "who": "claude",
+                "text": "Stops early; analyses 11 of 26 appendices."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Huge context cost, and still incomplete.",
+            "why": "Reading everything upfront wastes context. The files are identified by name, so a path pattern finds them directly."
+          },
+          {
+            "text": "Repeat the Grep for \"appendix\" with case-insensitive matching across the whole sources/ tree, so variant spellings are also caught.",
+            "lang": "text",
+            "code": "Grep  pattern: \"(?i)appendix\"\n      path: sources/\n      output: file names",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Grep(pattern=\"(?i)appendix\", path=\"sources/\")"
+              },
+              {
+                "who": "tool",
+                "text": "19 matches: text notes and HTML pages that mention appendices."
+              },
+              {
+                "who": "claude",
+                "text": "Analyses the 19 files."
+              },
+              {
+                "who": "system",
+                "text": "All 26 *_appendix.pdf files are still missed."
+              }
+            ],
+            "result": "bad",
+            "verdict": "More text matches, still none of the PDFs.",
+            "why": "Grep searches contents, but these targets are defined by file name. Widening a content search cannot find them."
+          },
+          {
+            "text": "Use Bash to run ls on sources/ and pick out the file names that end in _appendix.pdf from the listing.",
+            "lang": "bash",
+            "code": "ls sources/ | grep _appendix.pdf",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Bash(\"ls sources/ | grep _appendix.pdf\")"
+              },
+              {
+                "who": "tool",
+                "text": "4 files (top level only)."
+              },
+              {
+                "who": "claude",
+                "text": "Analyses 4 appendices."
+              },
+              {
+                "who": "system",
+                "text": "22 appendices in nested folders are missed."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Only the top-level folder is listed.",
+            "why": "Right pattern, wrong scope: ls without recursion misses nested folders. Glob with a ** pattern matches the whole tree."
+          },
+          {
+            "text": "Use Glob with the pattern sources/**/*_appendix.pdf to list every appendix by name, then Read each matching file.",
+            "lang": "text",
+            "code": "Glob  pattern: \"sources/**/*_appendix.pdf\"\nRead  each match",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "tool_use: Glob(\"sources/**/*_appendix.pdf\")"
+              },
+              {
+                "who": "tool",
+                "text": "26 files across 9 folders."
+              },
+              {
+                "who": "claude",
+                "text": "Reads and analyses all 26 appendices."
+              },
+              {
+                "who": "app",
+                "text": "Coordinator receives complete appendix coverage."
+              }
+            ],
+            "result": "good",
+            "verdict": "All 26 appendices found in one call.",
+            "why": "When files are identified by name, Glob's path patterns are the direct tool. Grep only helps when the target is text inside files."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "Files defined by name → Glob with a ** pattern; text inside files → Grep."
+      }
+    ],
+    "checks": [
+      {
+        "q": "You need every file matching `**/*.test.tsx`. Grep or Glob?",
+        "a": "Glob, because the files are identified by their path pattern, not by their contents."
+      },
+      {
+        "q": "Edit fails because the anchor text appears several times in the file. What do you do?",
+        "a": "Fall back to Read plus Write: read the whole file, make the change, and write it back. (Or choose a longer anchor that is unique.)"
+      },
+      {
+        "q": "What is the recommended way to understand an unfamiliar codebase?",
+        "a": "Grep for entry points, then Read files and follow their imports step by step, instead of reading everything upfront."
+      }
+    ],
+    "diagram": {
+      "type": "hub",
+      "title": "Which built-in tool?",
+      "center": {
+        "label": "What is the target?",
+        "note": "Content, name, or a change"
+      },
+      "spokes": [
+        {
+          "label": "Grep",
+          "note": "Text inside files",
+          "kind": "tool"
+        },
+        {
+          "label": "Glob",
+          "note": "File names and paths",
+          "kind": "tool"
+        },
+        {
+          "label": "Edit",
+          "note": "One spot, unique anchor",
+          "kind": "good"
+        },
+        {
+          "label": "Read + Write",
+          "note": "Fallback: anchor not unique",
+          "kind": "step"
+        },
+        {
+          "label": "Read everything",
+          "note": "Wastes context; avoid",
+          "kind": "bad"
+        }
+      ]
+    },
+    "quiz": [
+      {
+        "q": "You need to find where the message \"Payment declined by issuer\" is raised in a large repo. Which first tool call fits best?",
+        "options": [
+          "Glob with the pattern `**/*Payment declined*`",
+          "Grep for the text \"Payment declined by issuer\"",
+          "Read every file under `src/` in alphabetical order",
+          "Bash running `ls -R` to list every file in the repo"
+        ],
+        "answer": 1,
+        "why": "The target is text inside a file, so Grep is the right tool. Glob only matches file paths."
+      },
+      {
+        "q": "You need a list of every Storybook file named like `*.stories.tsx`. Which tool fits best?",
+        "options": [
+          "Glob with the pattern `**/*.stories.tsx`",
+          "Grep for the word \"stories\" in all files",
+          "Edit each component file to add a marker",
+          "Read the `package.json` file for a file list"
+        ],
+        "answer": 0,
+        "why": "The files are identified by their names, so Glob's path patterns are the direct tool."
+      },
+      {
+        "q": "You must change one line in a file, but the text `retries = 3` appears four times. What is the exam's recommended fallback?",
+        "options": [
+          "Use Glob to find a different file with the same line",
+          "Run Edit four times and accept whichever match it changes",
+          "Delete the file with Bash and recreate it from memory",
+          "Read the whole file, make the change, then Write it back"
+        ],
+        "answer": 3,
+        "why": "Edit needs a unique anchor. When there is none, Read plus Write is the fallback the exam expects."
+      },
+      {
+        "q": "Claude is asked to understand how checkout works in an unfamiliar 600-file codebase. What is the best approach?",
+        "options": [
+          "Read all 600 files first so nothing is missed",
+          "Glob for every `.ts` file and Read them in order",
+          "Grep for the checkout entry point, then Read along imports",
+          "Write a summary file first, then Read it back later"
+        ],
+        "answer": 2,
+        "why": "Incremental exploration keeps context for the code that matters. Reading everything up front wastes it."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "Glob can find text inside files if the pattern is broad enough.",
+        "fact": "Glob only matches file paths and names. It never looks at file contents; that is Grep's job."
+      },
+      {
+        "myth": "Write is safer than Edit because it sets the whole file to a known state.",
+        "fact": "Rewriting a whole file for a small change risks losing other lines. Edit with a unique anchor is the safe choice."
+      },
+      {
+        "myth": "Reading the whole codebase first gives Claude the best understanding.",
+        "fact": "It fills the context with unrelated code. Grep for an entry point and Read along imports instead."
+      }
+    ],
+    "scenario": {
+      "title": "Developer Productivity with Claude",
+      "story": "A developer asked Claude Code to find out why some customers saw \"Refund amount must be positive\" for small refunds. On the first try, Claude used Glob with `**/*Refund amount*`. No files matched, and it reported that the message did not exist. The developer knew it did.\n\nThey tried again with clearer guidance. Claude ran Grep for the exact message and found it in `src/payments/validate.ts` on line 42. It read that file, saw it imported `toMinorUnits` from `src/money/convert.ts`, and read that file next. The bug was there: `Math.floor(amount * 100)` turned 0.005 into 0.\n\nThe text `Math.floor(amount * 100)` appeared only once, so Claude used Edit to change it to `Math.round`. It did not rewrite the whole file. Then it used Glob with `src/money/**/*.test.ts` to find the matching test file, added a case, and ran the tests with Bash.\n\nIn total Claude read two files out of 640."
+    },
+    "currentNote": "In current Claude Code, Edit must follow a Read of the same file, and it also accepts `replace_all` to change every match or a longer `old_string` that includes surrounding lines to make the match unique. The exam answer for a non-unique anchor is still Read plus Write."
+  }
+]

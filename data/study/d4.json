@@ -1,0 +1,2888 @@
+[
+  {
+    "id": "4.1",
+    "plain": "When you ask Claude to review code or flag problems, it only knows what counts as a problem if you tell it. Saying \"be careful\" or \"only report what you are sure of\" does not help much. Listing exactly which kinds of issue to report, and which to ignore, is what cuts down false alarms. A false positive is a finding that turns out not to be a real problem.",
+    "analogy": "Telling a new proofreader \"be careful\" gets you a page covered in red ink. Telling them \"mark spelling errors and wrong dates, ignore comma style\" gets you the five marks you actually need.",
+    "sections": [
+      {
+        "h": "What precision means",
+        "body": "**Precision comes from telling Claude exactly what counts, not from asking it to be careful.**\n\nPrecision is the share of flagged items that are real problems. If a review bot posts 30 comments and only 3 matter, precision is 10%. The other 27 are **false positives**: alarms that turn out not to be problems.\n\nClaude cannot guess your bar. Compare:\n\n- Vague: \"check that comments are accurate\".\n- Specific: \"flag a comment only when its claimed behaviour contradicts the code\".\n\nThe vague version lets Claude flag any comment that is slightly loose. The specific version gives it a yes/no test it can apply to each comment. Explicit **categorical criteria** like this are what raise precision."
+      },
+      {
+        "h": "How to write report and skip lists",
+        "body": "**Write two lists, what to report and what to skip, then define each severity level with code.**\n\nStep by step:\n\n1. **Report list.** Name concrete categories: behaviour bugs, security issues such as unescaped input in SQL, comments that contradict the code.\n2. **Skip list.** Name the usual noise: style, naming preferences, patterns used consistently elsewhere in the repo.\n3. **Severity levels.** For each of `critical`, `major` and `minor`, write the criteria and add a short code example. \"Critical: serious issue\" is too thin, and two runs will label the same bug differently.\n4. **Test on real diffs.** Count findings per category and see where the noise comes from.\n\nThe skip list matters as much as the report list. It removes noise at the source, instead of hoping Claude filters it."
+      },
+      {
+        "h": "Why confidence instructions fail",
+        "body": "**\"Be conservative\" and \"only report high-confidence findings\" do not improve precision.**\n\nThese instructions sound sensible, but they do not change what Claude treats as a problem. If Claude believes a loosely worded comment is \"inaccurate\", it can be highly confident about that and still report it.\n\nA confidence instruction:\n\n- leaves the definition of a problem unchanged;\n- often cuts some real findings along with the noise;\n- adds a \"high confidence\" label that developers soon ignore.\n\nWhat works is replacing the threshold with categories: \"Report behaviour bugs. Skip comment wording that still describes the code correctly.\" Now Claude has a rule to apply.\n\nAlso avoid jumping to new infrastructure, such as a classifier or a three-judge vote. Those judges lack criteria too. Writing the criteria is the proportionate first fix."
+      },
+      {
+        "h": "When one category is noisy",
+        "body": "**Noise in one category erodes trust in every category, so pause it while you fix it.**\n\nDevelopers do not read findings category by category. If \"comment accuracy\" findings are wrong half the time, people start skimming the whole bot, and a real SQL injection at position 18 goes unread.\n\nThe proportionate response:\n\n- **Disable the noisy category temporarily.** The rest of the review regains trust straight away.\n- **Rewrite its criteria** with report/skip rules and examples.\n- **Re-enable it** once it is reliable on a sample of real pull requests.\n\nWhen not to do this: if the noise is spread across every category, the whole prompt needs explicit criteria, not one switch.\n\nA common wrong instinct is \"keep it on, its true positives are valuable\". That value is lost if nobody reads the findings."
+      }
+    ],
+    "diagram": {
+      "type": "compare",
+      "title": "Two ways to cut false positives",
+      "left": {
+        "title": "Confidence-based prompt",
+        "tone": "bad",
+        "items": [
+          "\"Be conservative\"",
+          "\"Only high-confidence findings\"",
+          "Problem stays undefined",
+          "Noise barely drops"
+        ]
+      },
+      "right": {
+        "title": "Categorical criteria",
+        "tone": "good",
+        "items": [
+          "Named categories to report",
+          "Named categories to skip",
+          "Severity levels with code examples",
+          "Noisy category paused while fixed"
+        ]
+      }
+    },
+    "example": {
+      "title": "Worked example: a review prompt with report/skip criteria",
+      "lang": "markdown",
+      "code": "## What to report\n- Bugs: logic that changes behaviour in a way the PR does not intend.\n- Security: unescaped user input in SQL, HTML or shell commands.\n- Comment drift: flag a comment ONLY when its claimed behaviour\n  contradicts what the code does.\n\n## What to skip\n- Style, formatting and naming preferences.\n- Patterns used consistently elsewhere in this repo.\n- Missing comments (absence is not a finding).\n\n## Severity\n- critical: exploitable or data-losing. Example:\n  `db.execute(\"SELECT * FROM users WHERE id=\" + req.id)`\n- major: wrong result on a normal input. Example:\n  `for i in range(1, len(items))`  # skips the first item\n- minor: wrong result only on rare edge cases. Example:\n  `avg = total / count`  # fails when count is 0 on empty export",
+      "notes": [
+        "The \"What to report\" list names concrete categories instead of asking Claude to be careful.",
+        "The comment rule is a test Claude can apply: does the comment contradict the code, yes or no.",
+        "The \"What to skip\" list is just as important; it removes the usual sources of noise.",
+        "Each severity level has a code example, so labels stay consistent across runs.",
+        "There is no confidence threshold anywhere in the prompt."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Claude Code for Continuous Integration",
+        "title": "Review bot noise makes developers ignore everything",
+        "context": "Your CI review bot posts about 30 comments per PR, and developers now ignore all of them, including real security findings. Most of the noise comes from the comment-accuracy category, and rewriting that category's criteria will take about two weeks.",
+        "question": "What should the team do first to restore trust in the bot?",
+        "options": [
+          {
+            "text": "Add an instruction to every category to be conservative and report only findings the model is highly confident about.",
+            "lang": "markdown",
+            "code": "Review this diff for bugs, security issues and\ninaccurate comments.\n\nBe conservative. Only report findings you are\nhighly confident about.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "PR #482 opened. Review bot runs with the updated prompt."
+              },
+              {
+                "who": "claude",
+                "text": "Reviews diff. Still treats any slightly imprecise comment as \"inaccurate\"."
+              },
+              {
+                "who": "claude",
+                "text": "Posts 26 findings, each described as high confidence."
+              },
+              {
+                "who": "user",
+                "text": "Developer dismisses the first 10 comment-wording findings and stops reading."
+              },
+              {
+                "who": "system",
+                "text": "A real SQL injection finding at position 18 goes unread."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Noise barely drops and the real bug is still missed.",
+            "why": "Confidence instructions do not change what Claude counts as a problem, so comment-wording noise stays. Trap: a vague confidence filter where explicit criteria are needed."
+          },
+          {
+            "text": "Keep the prompt and add a consensus layer, where three judge calls vote on each finding before it is posted.",
+            "lang": "python",
+            "code": "findings = review(diff)  # same vague prompt\nkept = []\nfor f in findings:\n    votes = [judge(f) for _ in range(3)]\n    if votes.count(\"real\") >= 2:\n        kept.append(f)\npost(kept)",
+            "variants": {
+              "csharp": "var findings = Review(diff);  // same vague prompt\nvar kept = new List<Finding>();\nforeach (var f in findings)\n{\n    var votes = Enumerable.Range(0, 3).Select(_ => Judge(f)).ToList();\n    if (votes.Count(v => v == \"real\") >= 2)\n        kept.Add(f);\n}\nPost(kept);",
+              "typescript": "const findings = review(diff); // same vague prompt\nconst kept = [];\nfor (const f of findings) {\n  const votes = Array.from({ length: 3 }, () => judge(f));\n  if (votes.filter((v) => v === \"real\").length >= 2) {\n    kept.push(f);\n  }\n}\npost(kept);"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Review runs with the original vague prompt: 28 findings."
+              },
+              {
+                "who": "app",
+                "text": "Each finding sent to 3 judge calls: 84 extra API calls."
+              },
+              {
+                "who": "tool",
+                "text": "Judges also lack criteria and disagree on comment-wording findings."
+              },
+              {
+                "who": "app",
+                "text": "Posts 14 findings. Review now takes 4 minutes longer."
+              },
+              {
+                "who": "user",
+                "text": "Developer still sees half noise and keeps ignoring the bot."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Some noise removed at high cost; developers still ignore the bot.",
+            "why": "Over-engineered: new infrastructure before the proportionate fix of explicit criteria. The judges have no criteria either, so they disagree on the same noisy findings."
+          },
+          {
+            "text": "Define report and skip categories, and disable the comment-accuracy category until its criteria are rewritten.",
+            "lang": "markdown",
+            "code": "Report: behaviour bugs; security issues\n(unescaped input in SQL/HTML/shell).\nSkip: style, naming, patterns used elsewhere\nin this repo.\n\n# comment-accuracy category: DISABLED while\n# its criteria are rewritten",
+            "trace": [
+              {
+                "who": "app",
+                "text": "PR #482 opened. Bot runs with report/skip lists; comment category is off."
+              },
+              {
+                "who": "claude",
+                "text": "Checks each change against the report list. Skips naming and style."
+              },
+              {
+                "who": "claude",
+                "text": "Posts 3 findings: 1 critical SQL injection, 2 major logic bugs."
+              },
+              {
+                "who": "user",
+                "text": "Developer reads all 3 and fixes the SQL injection before merge."
+              },
+              {
+                "who": "app",
+                "text": "Team drafts a new rule: flag comments only when they contradict the code."
+              }
+            ],
+            "result": "good",
+            "verdict": "Three real findings, all read and acted on.",
+            "why": "False positives in one category erode trust in every category, so pausing the noisy one restores trust now. Explicit report/skip categories keep the rest precise while the criteria are rewritten."
+          },
+          {
+            "text": "Keep comment-accuracy running because some findings are real, and tag every finding with a severity so developers can sort them.",
+            "lang": "markdown",
+            "code": "Review this diff for bugs, security issues and\ninaccurate comments.\n\nTag every finding: [critical] [major] [minor]\n\n# comment-accuracy: ENABLED\n# (it does catch some real drift)",
+            "trace": [
+              {
+                "who": "app",
+                "text": "PR #482 opened. Bot runs with severity tags; all categories on."
+              },
+              {
+                "who": "claude",
+                "text": "Posts 27 findings: 19 are [minor] comment-wording remarks."
+              },
+              {
+                "who": "user",
+                "text": "Developer sees the usual wall of comments and collapses them all."
+              },
+              {
+                "who": "system",
+                "text": "The one [critical] SQL injection finding goes unread."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Findings are labelled, but the noise and the distrust remain.",
+            "why": "A noisy category left running erodes trust in all categories, including the useful ones. Severity tags sort the noise but do not remove it (right pattern, wrong problem)."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "One noisy category poisons trust in all of them: disable it while you rewrite its criteria."
+      },
+      {
+        "scenario": "Structured Data Extraction",
+        "title": "Defect severity flips between near-identical reports",
+        "context": "Your pipeline extracts defect reports from warranty claims into records with a severity of critical, major or minor, and every critical record triggers a recall review. Each level is defined in one sentence, and near-identical battery-swelling reports come out critical on some runs and minor on others.",
+        "question": "Which change most improves the consistency of the severity field?",
+        "options": [
+          {
+            "text": "Rewrite each level as explicit criteria, with two or three concrete example reports per level showing where the boundaries fall.",
+            "lang": "markdown",
+            "code": "critical: any risk of fire, burns or injury.\n  e.g. \"battery swelled, casing split\"\n  e.g. \"charger sparked at the socket\"\nmajor: product unusable, no safety risk.\n  e.g. \"screen dead after two days\"\nminor: cosmetic, still fully usable.\n  e.g. \"scratch on the lid on arrival\"\nAny battery swelling counts as critical.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Runs 400 warranty claims through the updated prompt."
+              },
+              {
+                "who": "claude",
+                "text": "\"Battery bulging, lid will not close\" matches the swelling rule: critical."
+              },
+              {
+                "who": "claude",
+                "text": "\"Hinge slightly loose\" matches the cosmetic example: minor."
+              },
+              {
+                "who": "app",
+                "text": "Second run on the same 400 claims: 397 labels identical."
+              },
+              {
+                "who": "app",
+                "text": "Recall queue now holds only safety cases."
+              }
+            ],
+            "result": "good",
+            "verdict": "Same report, same label, run after run.",
+            "why": "Per-level criteria with concrete examples show exactly where each boundary sits. One-line definitions leave the boundary to the model's judgement on every run."
+          },
+          {
+            "text": "Add a severity_confidence field to the schema and send any record scored below 0.8 to a human reviewer.",
+            "lang": "json",
+            "code": "{\n  \"severity\": {\"enum\": [\"critical\", \"major\", \"minor\"]},\n  \"severity_confidence\": {\"type\": \"number\"}\n}\n// route to human if severity_confidence < 0.8",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Run 1: swelling report labelled critical, confidence 0.9."
+              },
+              {
+                "who": "claude",
+                "text": "Run 2: same report labelled minor, confidence 0.85."
+              },
+              {
+                "who": "app",
+                "text": "Neither run falls below 0.8; nothing is routed."
+              },
+              {
+                "who": "system",
+                "text": "Label still flips on 17% of borderline reports."
+              }
+            ],
+            "result": "bad",
+            "verdict": "The model is confidently inconsistent.",
+            "why": "A confidence score does not sharpen vague criteria; the model rates both answers highly. Trap: confidence-based filtering where explicit criteria are needed."
+          },
+          {
+            "text": "Expand each one-sentence definition into a detailed paragraph describing the factors that make a defect more or less serious.",
+            "lang": "markdown",
+            "code": "critical: a defect that is serious, taking into\naccount the likelihood of harm, the number of\nusers affected, the product category and any\nregulatory considerations...\nmajor: a defect of moderate seriousness...",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Runs the same 400 claims with the longer definitions."
+              },
+              {
+                "who": "claude",
+                "text": "Weighs \"likelihood of harm\" for slight swelling differently each run."
+              },
+              {
+                "who": "app",
+                "text": "Labels still flip on 14% of borderline reports."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Longer text, same inconsistency.",
+            "why": "More prose still leaves the boundary abstract, so borderline cases keep flipping. The rule is explicit criteria anchored by concrete examples per level."
+          },
+          {
+            "text": "Run the extraction three times per claim and keep whichever severity label appears in at least two of the runs.",
+            "lang": "yaml",
+            "code": "extraction:\n  runs_per_claim: 3\n  severity: majority_vote\n  prompt: prompts/defects.md   # unchanged",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Each claim extracted three times: 1,200 calls instead of 400."
+              },
+              {
+                "who": "claude",
+                "text": "Borderline swelling report: critical, minor, critical."
+              },
+              {
+                "who": "app",
+                "text": "Next day the same report votes minor, minor, critical."
+              },
+              {
+                "who": "system",
+                "text": "Cost tripled; borderline labels still differ between days."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Triple the cost and the boundary is still unclear.",
+            "why": "Over-engineered: voting averages noise from unclear criteria instead of removing it. The proportionate fix is explicit criteria with examples."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Inconsistent severity labels → explicit per-level criteria with concrete examples, not confidence scores or votes."
+      },
+      {
+        "scenario": "Customer Support Resolution Agent",
+        "title": "Fraud flags fire on a third of refunds",
+        "context": "Your support agent escalates a refund to the fraud team whenever the request \"might be fraudulent\". It now flags 31% of refunds, mostly loyal repeat customers and large orders, and the fraud team has started clearing the queue unread. The fraud team can name the specific patterns that actually matter.",
+        "question": "What change most improves the precision of the fraud flags?",
+        "options": [
+          {
+            "text": "Add \"only flag requests you are highly confident are fraudulent\" to the agent's system prompt.",
+            "lang": "markdown",
+            "code": "Escalate to the fraud team if a refund request\nmight be fraudulent.\n\nOnly flag requests you are highly confident\nare fraudulent.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Agent runs on 500 refund requests."
+              },
+              {
+                "who": "claude",
+                "text": "Still reads \"large order from a frequent buyer\" as suspicious."
+              },
+              {
+                "who": "app",
+                "text": "Flags drop from 31% to 26%, each marked high confidence."
+              },
+              {
+                "who": "user",
+                "text": "Fraud team keeps clearing the queue without reading it."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Slightly fewer flags, same wrong ones.",
+            "why": "Confidence wording does not tell Claude what counts as fraud, so it stays confident about the wrong cases. Trap: a confidence threshold where categorical criteria are needed."
+          },
+          {
+            "text": "Add a separate fraud-scoring model that rates every refund request and forwards only those scoring above a tuned threshold.",
+            "lang": "yaml",
+            "code": "refund_flow:\n  - agent: support_agent\n  - model: fraud_scorer_v1   # new, needs labelled data\n    forward_if: score > 0.72\n  - queue: fraud_team",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Team spends three weeks labelling past refunds to train the scorer."
+              },
+              {
+                "who": "app",
+                "text": "Agent still escalates 31%; scorer filters the queue to 18%."
+              },
+              {
+                "who": "user",
+                "text": "Fraud team asks why the agent flags loyal customers at all."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Weeks of new infrastructure; the agent is as vague as before.",
+            "why": "Over-engineered: a new model before the proportionate fix of naming the criteria. The agent's vague instruction is still the source of the noise."
+          },
+          {
+            "text": "Give the agent each customer's full order history so it has more context before deciding whether to flag.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Calls get_customer and pulls 40 past orders for a regular buyer."
+              },
+              {
+                "who": "claude",
+                "text": "\"Many recent refunds and large orders\" reads as suspicious."
+              },
+              {
+                "who": "app",
+                "text": "Flag rate rises from 31% to 34%."
+              }
+            ],
+            "result": "bad",
+            "verdict": "More data, judged against the same vague test.",
+            "why": "More context does not help when the test itself is \"might be fraudulent\" (right pattern, wrong problem). The agent needs named criteria to apply to that context."
+          },
+          {
+            "text": "Replace \"might be fraudulent\" with named flag patterns, such as new accounts with large refunds, and named skip cases.",
+            "lang": "markdown",
+            "code": "Flag for fraud review ONLY when:\n- account is under 14 days old AND refund > $300\n- 3+ refunds to different cards in 30 days\n- signed-for delivery, item claimed missing\nDo NOT flag: repeat customers with normal\nhistory, large orders alone, angry tone.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Agent runs on the same 500 refund requests."
+              },
+              {
+                "who": "claude",
+                "text": "Repeat buyer, large order: matches a skip case, refund processed."
+              },
+              {
+                "who": "claude",
+                "text": "Account 3 days old, $640 refund: matches a flag rule, escalated."
+              },
+              {
+                "who": "app",
+                "text": "Flag rate falls from 31% to 4%."
+              },
+              {
+                "who": "user",
+                "text": "Fraud team reviews every flag and confirms 2 real fraud cases."
+              }
+            ],
+            "result": "good",
+            "verdict": "Few flags, all worth reading.",
+            "why": "Specific categorical criteria tell Claude exactly what qualifies and what to ignore. That is what raises precision, not asking it to be careful."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "Vague \"might be X\" instructions → name the categories to flag and the cases to skip."
+      }
+    ],
+    "checks": [
+      {
+        "q": "Why does \"only report high-confidence findings\" not fix false positives?",
+        "a": "It does not tell Claude what counts as a problem. Explicit report and skip categories do, so they are what improve precision."
+      },
+      {
+        "q": "One review category is very noisy but sometimes finds real issues. What do you do?",
+        "a": "Disable it temporarily so its noise stops eroding trust in every category, then rewrite its criteria before turning it back on."
+      },
+      {
+        "q": "How do you get consistent severity labels?",
+        "a": "Give explicit criteria for each level with concrete code examples, not one-line definitions."
+      }
+    ],
+    "quiz": [
+      {
+        "q": "A CI review bot produces many false positives. Which prompt change most directly improves precision?",
+        "options": [
+          "Add \"only report findings you are highly confident about\".",
+          "Add a second model that votes on each finding first.",
+          "List the categories to report and the ones to skip.",
+          "Tell Claude to be conservative with borderline issues."
+        ],
+        "answer": 2,
+        "why": "Precision comes from explicit report/skip categories. Confidence wording does not change what Claude counts as a problem, and a voting layer is over-engineered as a first fix."
+      },
+      {
+        "q": "The \"comment accuracy\" category is wrong about half the time but sometimes finds real issues. Developers now ignore the bot. What should you do first?",
+        "options": [
+          "Disable that category for now and rewrite its criteria.",
+          "Keep it running because its true positives are valuable.",
+          "Lower its severity so its findings are listed last.",
+          "Ask developers to read every finding more carefully."
+        ],
+        "answer": 0,
+        "why": "Noise in one category erodes trust in all of them. Pausing it restores trust while its criteria are fixed."
+      },
+      {
+        "q": "Two runs of the same review label one bug \"major\" and then \"minor\". Each severity level has a one-line definition. What fixes this?",
+        "options": [
+          "Ask Claude to think harder before choosing a severity.",
+          "Remove severity labels from the review output.",
+          "Run the review three times and take the majority.",
+          "Give per-level criteria with a code example for each."
+        ],
+        "answer": 3,
+        "why": "One-line definitions leave room for inconsistent labels. Explicit criteria with concrete code examples per level make classification consistent."
+      },
+      {
+        "q": "Which instruction gives Claude a test it can apply to each code comment?",
+        "options": [
+          "Check that the code comments are accurate.",
+          "Flag a comment only when it contradicts the code.",
+          "Report comment problems you are sure about.",
+          "Be strict about the quality of all comments."
+        ],
+        "answer": 1,
+        "why": "It turns a vague goal into a yes/no category Claude can check. The other options are vague or confidence-based."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "Asking Claude to be conservative reduces false positives.",
+        "fact": "It does not change what Claude counts as a problem. Named report and skip categories do."
+      },
+      {
+        "myth": "A noisy category is worth keeping if it sometimes finds real bugs.",
+        "fact": "Its noise makes developers ignore every category. Disable it temporarily and fix its criteria."
+      },
+      {
+        "myth": "A filter model or consensus vote is the best first fix for noise.",
+        "fact": "It adds cost, and the judges have no criteria either. Explicit criteria are the proportionate first step."
+      }
+    ],
+    "scenario": {
+      "title": "Claude Code for Continuous Integration",
+      "story": "A payments team added a Claude review step to their CI pipeline. The prompt said: \"Review this diff for bugs, security issues and inaccurate comments. Be conservative.\"\n\nWithin two weeks the bot averaged 30 comments per pull request. Most were about comment wording, such as a docstring that said \"returns a list\" when the function returned a tuple. Developers began closing the bot's comments unread. One afternoon a real SQL injection finding sat at position 18 and nobody saw it.\n\nThe tech lead counted findings by category: 80% of the noise came from comment accuracy. She turned that category off. Then she rewrote the prompt with a report list (behaviour bugs, unescaped input in SQL, HTML or shell), a skip list (style, naming, patterns used elsewhere in the repo) and a code example for each severity level.\n\nThe next week the bot posted three or four findings per pull request, and developers read them all. The comment category came back later with one rule: flag a comment only when it contradicts the code."
+    }
+  },
+  {
+    "id": "4.2",
+    "plain": "Few-shot prompting means putting a few worked examples in your prompt: an input and the exact output you want. Claude copies the format and learns where the line sits between \"flag this\" and \"leave it\". It is the go-to fix when detailed written instructions still give inconsistent results.",
+    "analogy": "You can describe a filled-in tax form in three pages of rules, or you can hand someone two completed forms. The completed forms answer questions the rules never thought of.",
+    "sections": [
+      {
+        "h": "What few-shot prompting is",
+        "body": "**A few-shot prompt shows Claude 2 to 4 worked examples, so it can copy both the format and the judgement.**\n\n\"Few-shot\" means placing a few examples of input and desired output in the prompt, before the real task. A review prompt might show one code snippet with its finding written as `location | issue | severity | fix`, then ask Claude to review the real diff.\n\nExamples do two jobs that prose struggles with:\n\n- **Format.** Claude sees the exact shape of a good answer, field by field.\n- **Judgement.** Claude sees where the **decision boundary** sits: the line between \"report this\" and \"this is fine\".\n\nFew-shot prompting is the most effective fix when you have already written detailed instructions and the output is still inconsistent."
+      },
+      {
+        "h": "Choosing examples that teach",
+        "body": "**Pick examples for the hard, ambiguous cases, and show why each decision was made.**\n\nStep by step:\n\n1. **Find the ambiguous case.** Look at outputs that came back inconsistent. That is where examples help. The obvious case needs none.\n2. **Write a contrastive pair.** Two snippets that look alike, where only one is a real issue. For example, `except Exception: pass` in a retry loop (hides failures, report it) next to `except FileNotFoundError: return None` for an optional cache (expected, skip it).\n3. **Add a \"Why\" line** to each example, saying why that action beat the plausible alternative.\n4. **Stop at 2 to 4.** Ten copies of the easy case use tokens and teach nothing about the boundary.\n\nExamples of acceptable patterns are what cut false positives. Without them, Claude flags anything that looks like a bug."
+      },
+      {
+        "h": "Few-shot for extraction",
+        "body": "**When fields come back empty on a new layout, add examples from varied document structures.**\n\nIn extraction, the warning sign is a required field that is null, or invented, only on certain documents. Usually Claude has not seen that layout.\n\nExample: every example paper puts the sample size under a \"Methods\" heading. A conference paper says \"across 48 teams (n=312)\" in its introduction instead. Claude finds no Methods heading and returns null.\n\nThe fix is examples across **varied structures**:\n\n- a journal paper with a Methods section and a reference list;\n- a conference paper with inline \"[Lee 2021]\" citations and details in prose;\n- a position paper with no study, where `sample_size: null` is correct.\n\nThe last example matters. It shows that null is right when the data is truly absent, which reduces hallucination."
+      },
+      {
+        "h": "What goes wrong",
+        "body": "**More prose, more retries or more easy examples do not fix an unclear boundary.**\n\nCommon mistakes:\n\n- **Expanding the instructions.** Detailed instructions are what already failed. Adding \"look very carefully\" rarely changes the result.\n- **Only positive examples.** If every example is a real bug, Claude cannot see what acceptable code looks like, so false positives stay high.\n- **Retrying the same prompt.** On a layout Claude has not seen, a retry gives the same answer. It is the right pattern for the wrong problem.\n- **Near-identical examples.** Claude may copy surface details, such as a variable name, instead of the rule. Vary them so it generalises.\n\nWhen not to use few-shot: if the output is already consistent, or if the real problem is data missing from the source (lesson 4.4)."
+      }
+    ],
+    "diagram": {
+      "type": "flow",
+      "title": "Fixing inconsistent output with examples",
+      "steps": [
+        {
+          "label": "Detailed instructions",
+          "note": "Output still inconsistent",
+          "kind": "start"
+        },
+        {
+          "label": "Find ambiguous cases",
+          "note": "Where judgements or formats vary",
+          "kind": "step"
+        },
+        {
+          "label": "Write 2–4 examples",
+          "note": "Contrastive pairs and varied layouts",
+          "kind": "step"
+        },
+        {
+          "label": "Add a Why line",
+          "note": "Reasoning, not just the label",
+          "kind": "step"
+        },
+        {
+          "label": "Consistent output",
+          "note": "Clear boundary, fewer false positives",
+          "kind": "good"
+        }
+      ]
+    },
+    "example": {
+      "title": "Worked example: contrastive few-shot for a review bot",
+      "lang": "markdown",
+      "code": "Report each finding as: location | issue | severity | fix\n\n<example>\nCode: except Exception: pass   # in retry_upload()\nOutput: uploader.py:42 | errors swallowed, failed uploads\n  look successful | major | log and re-raise after retries\nWhy: hides failures from the caller, not just noisy.\n</example>\n\n<example>\nCode: except FileNotFoundError: return None  # in load_cache()\nOutput: (no finding)\nWhy: a missing cache is an expected state and the caller\n  checks for None. Narrow catch, documented intent.\n</example>\n\nNow review the following diff:",
+      "notes": [
+        "The first line fixes the output format; both examples follow it.",
+        "The two examples are a contrastive pair: both catch an exception, only one is a real issue.",
+        "Each example has a \"Why\" line, so Claude learns the reasoning, not just the label.",
+        "Two targeted examples cover the ambiguous case; there are none for obvious bugs."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Structured Data Extraction",
+        "title": "Fields come back null on a new layout",
+        "context": "Your pipeline extracts sample_size and citations from research papers. It works on journal papers, but on conference papers with inline citations and no Methods heading both fields come back null 80% of the time. The prompt already has detailed instructions on where these values can appear.",
+        "question": "What change most reliably fixes the null fields?",
+        "options": [
+          {
+            "text": "Strengthen the instructions: say the values may appear anywhere in the paper, and that required fields must never be left empty.",
+            "lang": "markdown",
+            "code": "Extract sample_size and citations.\nIMPORTANT: sample_size may appear anywhere.\nLook very carefully in all sections.\nCitations may be formatted in different ways.\nNever leave required fields empty.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Runs on 50 conference papers."
+              },
+              {
+                "who": "claude",
+                "text": "Searches for a Methods heading, does not find one."
+              },
+              {
+                "who": "claude",
+                "text": "\"Never leave empty\" pushes it to guess: sample_size = 100 on 9 papers."
+              },
+              {
+                "who": "app",
+                "text": "Spot check: 9 guessed values are wrong; 31 papers still null."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Still empty on most papers, and now some values are invented.",
+            "why": "Detailed instructions are what already failed, and pressure to fill fields causes invented values. Trap: more prose where examples are needed."
+          },
+          {
+            "text": "Add a few examples from different layouts, including a conference paper with inline citations and a paper with no study.",
+            "lang": "markdown",
+            "code": "<example type=\"journal\">\nMethods: \"We recruited 214 adults...\" -> sample_size: 214\nReferences list at end -> citations: [...]\n</example>\n<example type=\"conference\">\nIntro para: \"...across 48 teams (n=312)\" -> sample_size: 312\nInline \"[Lee 2021]\" -> citations: [\"Lee 2021\"]\n</example>\n<example type=\"no-sample\">\nPosition paper, no study -> sample_size: null\n</example>",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Runs on the same 50 conference papers."
+              },
+              {
+                "who": "claude",
+                "text": "Recognises the inline \"(n=...)\" pattern from the conference example."
+              },
+              {
+                "who": "claude",
+                "text": "Collects inline [Author Year] citations instead of hunting for a references list."
+              },
+              {
+                "who": "app",
+                "text": "Null rate drops from 80% to 6%; the remaining nulls are position papers with no study."
+              }
+            ],
+            "result": "good",
+            "verdict": "Fields fill correctly and genuine nulls stay null.",
+            "why": "Examples across varied structures show Claude where the data lives in each layout. The no-study example also shows that null is right when the data is absent."
+          },
+          {
+            "text": "Retry each paper that returns a null field, up to three times, and keep the first non-null result.",
+            "lang": "python",
+            "code": "for paper in papers:\n    out = extract(paper)\n    tries = 0\n    while out[\"sample_size\"] is None and tries < 3:\n        out = extract(paper)  # same prompt\n        tries += 1",
+            "variants": {
+              "csharp": "foreach (var paper in papers)\n{\n    var output = Extract(paper);\n    var tries = 0;\n    while (output[\"sample_size\"] is null && tries < 3)\n    {\n        output = Extract(paper);  // same prompt\n        tries++;\n    }\n}",
+              "typescript": "for (const paper of papers) {\n  let out = extract(paper);\n  let tries = 0;\n  while (out.sample_size === null && tries < 3) {\n    out = extract(paper); // same prompt\n    tries += 1;\n  }\n}"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "40 papers return null sample_size on first pass."
+              },
+              {
+                "who": "app",
+                "text": "Retries each up to 3 times with the same prompt: 120 extra calls."
+              },
+              {
+                "who": "claude",
+                "text": "Same layout, same examples: same result on 37 of 40."
+              },
+              {
+                "who": "app",
+                "text": "Cost triples; null rate barely changes."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Expensive and almost no improvement.",
+            "why": "Retrying is the right pattern for the wrong problem: the model has not seen this layout. Varied-structure examples address the cause."
+          },
+          {
+            "text": "Add a classifier that labels each paper's layout, then route each layout to its own specialised prompt.",
+            "lang": "yaml",
+            "code": "pipeline:\n  - step: classify_layout   # journal | conference | other\n  - step: extract\n    prompt_by_layout:\n      journal: prompts/journal.md\n      conference: prompts/conference.md  # new prose\n      other: prompts/journal.md",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Classifier labels workshop papers as \"other\": they get the journal prompt."
+              },
+              {
+                "who": "claude",
+                "text": "Conference prompt is new prose with no examples; still looks for Methods."
+              },
+              {
+                "who": "app",
+                "text": "Null rate drops from 80% to 61%."
+              },
+              {
+                "who": "system",
+                "text": "Team now maintains three prompts and a classifier."
+              }
+            ],
+            "result": "bad",
+            "verdict": "New infrastructure, still mostly null.",
+            "why": "Over-engineered: a routing layer before the proportionate fix. Each route is still prose instructions, which is what already failed."
+          }
+        ],
+        "answer": 1,
+        "takeaway": "Nulls on an unfamiliar layout → examples across varied structures, including a genuine-null case."
+      },
+      {
+        "scenario": "Claude Code for Continuous Integration",
+        "title": "Reviewer flags every deliberate catch-all handler",
+        "context": "Your CI reviewer flags error handling that swallows exceptions and catches real bugs, but it also flags the repository's top-level request handlers, which deliberately catch everything and log it. 40% of its error-handling comments are dismissed, and a detailed paragraph explaining the difference is already in the prompt. The team wants fewer dismissals without losing the real catches.",
+        "question": "What is the most effective next step?",
+        "options": [
+          {
+            "text": "Add six more examples of genuinely swallowed exceptions, each showing location, issue, severity and suggested fix.",
+            "lang": "markdown",
+            "code": "<example>\nbilling/charge.py:42  except Exception: pass\nIssue: failure hidden from caller\nSeverity: major\nFix: log and re-raise\n</example>\n... five more real issues, same shape ...",
+            "trace": [
+              {
+                "who": "app",
+                "text": "PR #610 reviewed with six new issue examples."
+              },
+              {
+                "who": "claude",
+                "text": "Output format is perfect: location, issue, severity, fix."
+              },
+              {
+                "who": "claude",
+                "text": "Flags handlers/api.py catch-all again as \"swallowed exception\"."
+              },
+              {
+                "who": "app",
+                "text": "Dismissal rate on error-handling comments: 39%."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Nicely formatted, still wrong about the handlers.",
+            "why": "Examples of real issues only leave the decision boundary unclear. Without an acceptable-pattern example, the false positives stay."
+          },
+          {
+            "text": "Disable the error-handling category until the prompt is rewritten, because its false positives erode trust in the bot.",
+            "lang": "yaml",
+            "code": "review_categories:\n  security: on\n  bugs: on\n  error_handling: off   # until prompt fixed",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Error-handling category switched off."
+              },
+              {
+                "who": "app",
+                "text": "PR #614 merges with \"except Exception: pass\" around a payment call."
+              },
+              {
+                "who": "system",
+                "text": "Failed charges are silently marked as paid in production."
+              }
+            ],
+            "result": "bad",
+            "verdict": "No false positives, and no real catches either.",
+            "why": "Disabling suits a category developers already ignore; here they still read it and the real catches matter. The prompt has already been rewritten once, so the next step is a better fix, not a pause."
+          },
+          {
+            "text": "Expand the paragraph into a full procedure listing every file and function where a catch-all handler is allowed.",
+            "lang": "markdown",
+            "code": "Catch-all handlers are acceptable ONLY in:\n- handlers/api.py: handle_request\n- handlers/jobs.py: run_job\n- workers/queue.py: consume\nFlag a catch-all anywhere else.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Skips the three listed functions correctly."
+              },
+              {
+                "who": "app",
+                "text": "PR #610 adds handlers/webhooks.py with the same logging catch-all."
+              },
+              {
+                "who": "claude",
+                "text": "Not on the list: flags it as a swallowed exception."
+              },
+              {
+                "who": "user",
+                "text": "Developer dismisses it and asks who maintains the list."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Works for listed files, fails on the next new one.",
+            "why": "More detailed prose is what already failed, and a hard-coded list does not generalise to new handlers. Contrastive examples teach the pattern instead."
+          },
+          {
+            "text": "Add two or three contrastive examples: a logging top-level handler marked acceptable and a swallowed exception marked as an issue.",
+            "lang": "markdown",
+            "code": "<example verdict=\"acceptable\">\nhandlers/api.py: except Exception -> log, 500\nWhy: top-level boundary; error is logged\nand surfaced to the caller.\n</example>\n<example verdict=\"flag\">\nbilling/charge.py: except Exception: pass\nWhy: failure hidden; caller thinks it worked.\n</example>",
+            "trace": [
+              {
+                "who": "app",
+                "text": "PR #610 adds handlers/webhooks.py with a logging catch-all."
+              },
+              {
+                "who": "claude",
+                "text": "Matches the acceptable example: boundary handler, logged. Skips it."
+              },
+              {
+                "who": "claude",
+                "text": "Flags \"except: pass\" in refunds/sync.py, citing the hidden failure."
+              },
+              {
+                "who": "app",
+                "text": "Dismissal rate falls from 40% to 8% over two weeks."
+              }
+            ],
+            "result": "good",
+            "verdict": "Real catches kept, deliberate handlers left alone.",
+            "why": "Examples that separate acceptable patterns from genuine issues show the decision boundary and generalise to new files. Prose had already failed to do that."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "False positives on deliberate patterns → contrastive examples showing both sides and the reason."
+      },
+      {
+        "scenario": "Customer Support Resolution Agent",
+        "title": "Agent starts with the wrong lookup tool",
+        "context": "Your support agent has get_customer and lookup_order, and their descriptions were rewritten last month and are clear. For ambiguous messages such as \"I was charged twice\", the agent starts with get_customer on some runs and lookup_order on others, and a wrong start adds two extra turns. Common, unambiguous requests are already handled correctly.",
+        "question": "What change most reliably makes the first tool choice consistent?",
+        "options": [
+          {
+            "text": "Add two to four examples of ambiguous requests, each showing which tool was called first and why it beat the other.",
+            "lang": "markdown",
+            "code": "<example>\nCustomer: \"I was charged twice for order 5521\"\nFirst call: lookup_order\nWhy not get_customer: the charge belongs to one\norder; check it before the account.\n</example>\n<example>\nCustomer: \"You charge me every month\"\nFirst call: get_customer\nWhy: recurring billing lives on the account.\n</example>",
+            "trace": [
+              {
+                "who": "user",
+                "text": "\"Charged twice for my order 7710.\""
+              },
+              {
+                "who": "claude",
+                "text": "Matches the first example: calls lookup_order first."
+              },
+              {
+                "who": "user",
+                "text": "\"Why do you keep billing me each month?\""
+              },
+              {
+                "who": "claude",
+                "text": "Matches the second example: calls get_customer first."
+              },
+              {
+                "who": "app",
+                "text": "Test set of 200 ambiguous messages: right first tool 96% of the time."
+              }
+            ],
+            "result": "good",
+            "verdict": "Consistent first calls on the ambiguous cases.",
+            "why": "A few targeted examples of the ambiguous case, with the reason one action beat the alternative, set the decision boundary. The descriptions were already clear, so the gap was judgement, not information."
+          },
+          {
+            "text": "Add twenty examples of common requests, such as order status and address changes, so the agent sees more tool calls.",
+            "lang": "markdown",
+            "code": "<example>\"Where is my parcel?\" -> lookup_order</example>\n<example>\"Change my address\" -> get_customer</example>\n<example>\"Cancel order 4410\" -> lookup_order</example>\n<example>\"Update my email\" -> get_customer</example>\n... 16 more easy cases, none ambiguous ...",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Prompt grows by 1,800 tokens of examples."
+              },
+              {
+                "who": "claude",
+                "text": "Easy requests: still correct, as before."
+              },
+              {
+                "who": "claude",
+                "text": "\"Charged twice\": still flips between the two tools."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Longer prompt, same flip on the hard cases.",
+            "why": "Volume of the easy case does not help; the agent already gets those right. Only targeted examples of the ambiguous case move the boundary."
+          },
+          {
+            "text": "Add a routing classifier before the agent that decides which lookup tool to call first for every message.",
+            "lang": "yaml",
+            "code": "pipeline:\n  - classifier: first_tool_router\n    labels: [get_customer, lookup_order]\n  - agent: support_agent\n    forced_first_tool: ${router.label}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Router needs 2,000 labelled messages; team labels them by hand."
+              },
+              {
+                "who": "app",
+                "text": "Router also splits on \"charged twice\": 70/30."
+              },
+              {
+                "who": "system",
+                "text": "Two components to maintain; ambiguous cases still inconsistent."
+              }
+            ],
+            "result": "bad",
+            "verdict": "New infrastructure, same ambiguity.",
+            "why": "Over-engineered: a router before the proportionate fix of a few targeted examples. The router faces the same unclear boundary."
+          },
+          {
+            "text": "Rewrite both tool descriptions again with more detail about what each one returns and when to use it.",
+            "lang": "json",
+            "code": "{\n  \"name\": \"lookup_order\",\n  \"description\": \"Returns status, items, charges and\n    refunds for ONE order. Use when the message is\n    about a specific purchase. (now 140 words)\"\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Descriptions grow from 40 to 140 words each."
+              },
+              {
+                "who": "claude",
+                "text": "\"Charged twice\" fits both descriptions equally well."
+              },
+              {
+                "who": "app",
+                "text": "First-tool consistency on ambiguous messages: 58% to 61%."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Clearer descriptions, same coin-flip.",
+            "why": "Right pattern, wrong problem: descriptions fix tool confusion, but these were already clear. The ambiguity is in the request, which examples resolve."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Ambiguous choices → 2–4 targeted examples that show why one action beat the alternatives."
+      }
+    ],
+    "checks": [
+      {
+        "q": "Detailed formatting instructions still give inconsistent output. What is the usual next step?",
+        "a": "Add 2 to 4 few-shot examples that show the exact format and the reasoning on ambiguous cases."
+      },
+      {
+        "q": "Why include an example of acceptable code in a bug-finding prompt?",
+        "a": "It shows where the decision boundary sits. Without it, Claude flags anything that looks similar and false positives stay high."
+      },
+      {
+        "q": "Required fields are null only on documents with a new layout. Retry or add examples?",
+        "a": "Add examples covering varied structures. Retrying the same prompt does not teach Claude where the data sits in that layout."
+      }
+    ],
+    "quiz": [
+      {
+        "q": "Your review prompt has a page of detailed formatting rules, yet finding formats still vary between runs. What is the most effective next step?",
+        "options": [
+          "Add another page of more precise formatting rules.",
+          "Add 2–4 examples that show the exact finding format.",
+          "Ask Claude to double-check its format before replying.",
+          "Retry any response that does not match the format."
+        ],
+        "answer": 1,
+        "why": "Detailed instructions already failed. Few-shot examples are the most effective way to get consistent format."
+      },
+      {
+        "q": "A bot flags every broad `except` block, including harmless ones. All its examples show real bugs. What should you add?",
+        "options": [
+          "Ten more examples of obvious exception-handling bugs.",
+          "An instruction to report only serious exception issues.",
+          "A confidence threshold for exception-related findings.",
+          "An acceptable `except` example with its reasoning."
+        ],
+        "answer": 3,
+        "why": "A contrastive example of an acceptable pattern shows where the boundary sits. More bug examples or confidence wording leave it unclear."
+      },
+      {
+        "q": "Required fields return null only on conference papers, a layout your examples never show. What fixes the cause?",
+        "options": [
+          "Add examples that cover conference and other layouts.",
+          "Retry each null result up to three times.",
+          "Tell Claude never to leave required fields empty.",
+          "Send conference papers to a larger model instead."
+        ],
+        "answer": 0,
+        "why": "Claude has not seen that structure, so varied-structure examples address the cause. Retries repeat the same answer, and \"never leave empty\" invites invented values."
+      },
+      {
+        "q": "How many few-shot examples does the guidance recommend for an ambiguous case?",
+        "options": [
+          "One, so Claude does not copy surface details.",
+          "As many as fit, ideally twenty or more.",
+          "Two to four targeted examples that show reasoning.",
+          "None, because prose rules are more precise."
+        ],
+        "answer": 2,
+        "why": "Two to four targeted examples of the ambiguous case, each with its reasoning, beat a large number of easy ones."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "More examples are always better.",
+        "fact": "Two to four targeted examples of the ambiguous case beat many examples of the easy one."
+      },
+      {
+        "myth": "Examples only need to show real problems.",
+        "fact": "Examples of acceptable patterns show the boundary, which is what cuts false positives."
+      },
+      {
+        "myth": "Null fields on a new layout mean the request needs a retry.",
+        "fact": "Claude has not seen that structure. Examples across varied layouts fix it; retries do not."
+      }
+    ],
+    "scenario": {
+      "title": "Structured Data Extraction",
+      "story": "A research-analytics team built a pipeline that pulls `sample_size` and `citations` from academic papers. It worked well on journal articles. Then they added 50 conference papers, and 80% came back with both fields null.\n\nThe first fix was more instructions: \"sample size may appear anywhere, look very carefully, never leave required fields empty\". The null rate barely moved, and nine papers now had a sample size of 100 that appeared nowhere in the text.\n\nAn engineer read the failures. The conference papers had no Methods heading. They gave the sample as \"(n=312)\" in the introduction and cited work inline as \"[Lee 2021]\". Every example in the prompt was a journal paper.\n\nShe removed the \"never leave empty\" line and wrote three short examples: a journal paper, a conference paper with inline details, and a position paper where `sample_size` is correctly null. On the next run the null rate fell to 6%, and every remaining null was a paper with no study in it."
+    }
+  },
+  {
+    "id": "4.3",
+    "plain": "If you need Claude to return data in a fixed shape, describe that shape as a tool with a JSON schema and have Claude call the tool. A JSON schema is a description of which fields exist and what type each one is. This removes broken JSON, but it does not guarantee the values are right. Field design and `tool_choice` decide how far you can trust the values.",
+    "analogy": "A paper form with labelled boxes stops people writing a free-form letter, but it cannot stop them writing the wrong number in the \"total\" box.",
+    "currentNote": "On Claude Opus 5.5, Sonnet 5.5 and Fable 5.1, forced `tool_choice` (`any` or `tool`) returns HTTP 400, and with manual extended thinking it errors on every model. For guaranteed structure on current models, use `tool_choice: auto` with `\"strict\": true` on the tool, or structured outputs via `output_config.format` with a `json_schema`, and still check `stop_reason`.",
+    "sections": [
+      {
+        "h": "What it is",
+        "body": "**Define a tool with a JSON schema, and Claude's answer arrives as structured data instead of free text.**\n\nA tool has a `name`, a `description` and an `input_schema`: a JSON schema listing the fields and their types. When Claude calls the tool, the response contains a `tool_use` block whose `input` is an object in that shape. Your code reads the fields directly.\n\nFor extraction, the \"tool\" often does nothing at all. `extract_invoice` exists only so Claude fills in its fields.\n\nWhy bother? If you ask for \"JSON in your reply\", Claude usually complies, but sometimes it adds \"Here is the JSON:\" or a trailing comma, and `json.loads` fails on document 37 of 500. Tool use with a schema eliminates those **syntax errors**. It is the most reliable route to schema-compliant output."
+      },
+      {
+        "h": "Choosing tool_choice",
+        "body": "**`auto` may reply in text, `any` must call some tool, and a forced tool must call the named one.**\n\nThe `tool_choice` parameter controls whether Claude has to call a tool:\n\n- `{\"type\": \"auto\"}`: Claude may call a tool **or answer in text**. Fine for chat, risky in a pipeline that expects a `tool_use` block.\n- `{\"type\": \"any\"}`: Claude **must call one of the tools** and chooses which. Use it when you have several schemas (invoice, receipt, contract) and do not know the document type.\n- `{\"type\": \"tool\", \"name\": \"extract_metadata\"}`: Claude **must call that tool**. Use it when one step must run first, such as metadata before enrichment.\n\n**In current models:** forced choices (`any`, `tool`) return HTTP 400 on Opus 5.5, Sonnet 5.5 and Fable 5.1. There you use `auto` with `\"strict\": true` on the tool, or `output_config.format` with a JSON schema. Exam questions still expect the choices above."
+      },
+      {
+        "h": "Designing the schema",
+        "body": "**Good schemas make the honest answer easy: nullable fields, `\"unclear\"` and `\"other\"`.**\n\nA schema fixes the shape. Its design decides whether Claude can be honest:\n\n- **Nullable fields.** If an invoice may lack a due date, use `\"type\": [\"string\", \"null\"]`. If the field must be a string, Claude is pushed to invent one, such as \"2024-01-01\".\n- **`\"unclear\"` in enums.** When a currency symbol is smudged, Claude can say so instead of guessing `\"USD\"`.\n- **`\"other\"` plus a detail string.** A `currency` enum of GBP, EUR, USD and `\"other\"`, with `currency_detail` holding \"CHF\", captures new values without a schema change.\n- **Normalisation rules in the prompt.** If sources write dates as \"3rd March\" and \"03/03/25\", add \"dates as YYYY-MM-DD\" to the prompt and the field description. The schema fixes the type; the rule fixes the format."
+      },
+      {
+        "h": "Syntax is not semantics",
+        "body": "**A schema-valid answer can still be wrong, so check the values too.**\n\nTool use guarantees structure, not truth. All of these pass the schema:\n\n- line items that add up to £940 while `stated_total` says £1,040;\n- a supplier's VAT number placed in `invoice_number`;\n- a date in the right format but taken from the wrong line.\n\nThese are **semantic errors**, and a schema cannot see them. Catch them with checks in your code, such as comparing a `calculated_total` with the `stated_total` (lesson 4.4).\n\nExam habit: split the problem in the stem. Parse failures and malformed JSON point to tool use with a schema. Wrong or invented values point to schema design or validation. If the source can lack the value, the answer is a nullable field, not a stricter schema."
+      }
+    ],
+    "diagram": {
+      "type": "hub",
+      "title": "Picking tool_choice for extraction",
+      "center": {
+        "label": "tool_choice",
+        "note": "Must Claude call a tool?"
+      },
+      "spokes": [
+        {
+          "label": "auto",
+          "note": "May reply in text; risky in pipelines",
+          "kind": "bad"
+        },
+        {
+          "label": "any",
+          "note": "Must call one; document type unknown",
+          "kind": "good"
+        },
+        {
+          "label": "tool + name",
+          "note": "Must call this one; runs first",
+          "kind": "good"
+        },
+        {
+          "label": "Current models",
+          "note": "Forced choices return 400; use strict tools or output_config",
+          "kind": "step"
+        }
+      ]
+    },
+    "example": {
+      "title": "Worked example: an extraction tool with nullable and enum fields",
+      "lang": "python",
+      "code": "invoice_tool = {\n    \"name\": \"extract_invoice\",\n    \"description\": \"Record fields from one invoice.\",\n    \"input_schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n            \"invoice_number\": {\"type\": [\"string\", \"null\"]},\n            \"due_date\": {\"type\": [\"string\", \"null\"],\n                         \"description\": \"YYYY-MM-DD\"},\n            \"currency\": {\"type\": \"string\",\n                         \"enum\": [\"GBP\", \"EUR\", \"USD\", \"other\", \"unclear\"]},\n            \"currency_detail\": {\"type\": [\"string\", \"null\"]},\n            \"stated_total\": {\"type\": \"number\"}\n        },\n        \"required\": [\"invoice_number\", \"due_date\", \"currency\", \"stated_total\"]\n    }\n}\n\nresp = client.messages.create(\n    model=MODEL, max_tokens=1024,\n    tools=[invoice_tool, receipt_tool, contract_tool],\n    tool_choice={\"type\": \"any\"},  # must call one of the three\n    messages=[{\"role\": \"user\", \"content\": doc_text}],\n)\ncall = next(b for b in resp.content if b.type == \"tool_use\")",
+      "variants": {
+        "csharp": "// illustrative: the ToolChoice shape is not in the documented C# SDK examples\nvar invoiceTool = new Tool\n{\n    Name = \"extract_invoice\",\n    Description = \"Record fields from one invoice.\",\n    InputSchema = new()\n    {\n        Properties = new Dictionary<string, JsonElement>\n        {\n            [\"invoice_number\"] = JsonSerializer.SerializeToElement(new { type = new[] { \"string\", \"null\" } }),\n            [\"due_date\"] = JsonSerializer.SerializeToElement(new { type = new[] { \"string\", \"null\" },\n                                                                   description = \"YYYY-MM-DD\" }),\n            [\"currency\"] = JsonSerializer.SerializeToElement(new { type = \"string\",\n                                                                   @enum = new[] { \"GBP\", \"EUR\", \"USD\", \"other\", \"unclear\" } }),\n            [\"currency_detail\"] = JsonSerializer.SerializeToElement(new { type = new[] { \"string\", \"null\" } }),\n            [\"stated_total\"] = JsonSerializer.SerializeToElement(new { type = \"number\" }),\n        },\n        Required = [\"invoice_number\", \"due_date\", \"currency\", \"stated_total\"],\n    },\n};\n\nvar resp = await client.Messages.Create(new MessageCreateParams\n{\n    Model = Model, MaxTokens = 1024,\n    Tools = [invoiceTool, receiptTool, contractTool],\n    ToolChoice = new ToolChoiceAny(),  // must call one of the three\n    Messages = [new() { Role = Role.User, Content = docText }],\n});\nvar call = resp.Content.Select(b => b.Value).OfType<ToolUseBlock>().First();",
+        "typescript": "const invoiceTool: Anthropic.Tool = {\n  name: \"extract_invoice\",\n  description: \"Record fields from one invoice.\",\n  input_schema: {\n    type: \"object\",\n    properties: {\n      invoice_number: { type: [\"string\", \"null\"] },\n      due_date: { type: [\"string\", \"null\"],\n                  description: \"YYYY-MM-DD\" },\n      currency: { type: \"string\",\n                  enum: [\"GBP\", \"EUR\", \"USD\", \"other\", \"unclear\"] },\n      currency_detail: { type: [\"string\", \"null\"] },\n      stated_total: { type: \"number\" },\n    },\n    required: [\"invoice_number\", \"due_date\", \"currency\", \"stated_total\"],\n  },\n};\n\nconst resp = await client.messages.create({\n  model: MODEL, max_tokens: 1024,\n  tools: [invoiceTool, receiptTool, contractTool],\n  tool_choice: { type: \"any\" }, // must call one of the three\n  messages: [{ role: \"user\", content: docText }],\n});\nconst call = resp.content.find((b) => b.type === \"tool_use\");"
+      },
+      "notes": [
+        "`invoice_number` and `due_date` are required keys but allow `null`, so Claude can say \"not present\" instead of inventing a value.",
+        "`currency` has `\"unclear\"` for ambiguous sources and `\"other\"` plus `currency_detail` for anything not listed.",
+        "The `YYYY-MM-DD` description is a normalisation rule; you can repeat it in the system prompt.",
+        "`tool_choice` `\"any\"` guarantees a tool call when the document type is unknown, and Claude picks the matching schema. On Opus 5.5, Sonnet 5.5 and Fable 5.1 forced choices return 400 (see the note above).",
+        "The result is schema-valid, but `stated_total` still needs a semantic check against the line items."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Structured Data Extraction",
+        "title": "Mixed documents, unknown type, missing values",
+        "context": "A folder of unlabelled invoices, receipts and contracts must become structured records, and you have one extraction tool per document type. Some invoices have no due date and a few currency symbols are illegible. Downstream code needs a valid record for every document and must never receive invented values.",
+        "question": "Which setup best meets these requirements?",
+        "options": [
+          {
+            "text": "Ask for JSON in the prompt, with the field names listed, and parse the text of the response.",
+            "lang": "python",
+            "code": "resp = client.messages.create(\n    model=MODEL, max_tokens=1024,\n    messages=[{\"role\": \"user\", \"content\":\n        \"Return the fields as JSON:\\n\" + doc_text}],\n)\ndata = json.loads(resp.content[0].text)",
+            "variants": {
+              "csharp": "var resp = await client.Messages.Create(new MessageCreateParams\n{\n    Model = Model, MaxTokens = 1024,\n    Messages = [new() { Role = Role.User, Content =\n        \"Return the fields as JSON:\\n\" + docText }],\n});\nvar data = JsonDocument.Parse(((TextBlock)resp.Content[0].Value).Text);",
+              "typescript": "const resp = await client.messages.create({\n  model: MODEL, max_tokens: 1024,\n  messages: [{ role: \"user\", content:\n    \"Return the fields as JSON:\\n\" + docText }],\n});\nconst data = JSON.parse((resp.content[0] as Anthropic.TextBlock).text);"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Processes 500 documents."
+              },
+              {
+                "who": "claude",
+                "text": "Doc 37: starts with \"Here is the JSON:\" before the object."
+              },
+              {
+                "who": "app",
+                "text": "json.loads raises JSONDecodeError on doc 37."
+              },
+              {
+                "who": "claude",
+                "text": "Doc 212: uses \"dueDate\" on one doc and \"due_date\" on another."
+              },
+              {
+                "who": "app",
+                "text": "11 documents fail to parse; the field names drift."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Parse failures and inconsistent field names.",
+            "why": "Prompted JSON is probabilistic: preambles and drifting field names break parsing. Trap: a prompt where a schema-enforced tool call is needed."
+          },
+          {
+            "text": "Offer one tool per document type with tool_choice \"auto\", and mark every field required so that records are complete.",
+            "lang": "python",
+            "code": "# due_date: {\"type\": \"string\"}  (no null allowed)\nresp = client.messages.create(\n    model=MODEL, max_tokens=1024,\n    tools=[invoice_tool, receipt_tool, contract_tool],\n    tool_choice={\"type\": \"auto\"},\n    messages=[{\"role\": \"user\", \"content\": doc_text}],\n)",
+            "variants": {
+              "csharp": "// illustrative: the ToolChoice shape is not in the documented C# SDK examples\n// due_date: {\"type\": \"string\"}  (no null allowed)\nvar resp = await client.Messages.Create(new MessageCreateParams\n{\n    Model = Model, MaxTokens = 1024,\n    Tools = [invoiceTool, receiptTool, contractTool],\n    ToolChoice = new ToolChoiceAuto(),\n    Messages = [new() { Role = Role.User, Content = docText }],\n});",
+              "typescript": "// due_date: {\"type\": \"string\"}  (no null allowed)\nconst resp = await client.messages.create({\n  model: MODEL, max_tokens: 1024,\n  tools: [invoiceTool, receiptTool, contractTool],\n  tool_choice: { type: \"auto\" },\n  messages: [{ role: \"user\", content: docText }],\n});"
+            },
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Doc 8 is a scanned letter: replies in text, \"This does not look like an invoice.\""
+              },
+              {
+                "who": "app",
+                "text": "No tool_use block found; doc 8 is dropped."
+              },
+              {
+                "who": "claude",
+                "text": "Doc 51 has no due date; schema requires a string, so it writes \"2024-01-01\"."
+              },
+              {
+                "who": "app",
+                "text": "Finance chases a payment that was never due on that date."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Some text replies and fabricated dates.",
+            "why": "\"auto\" may answer in text instead of calling a tool. Required fields push Claude to invent values the source does not contain."
+          },
+          {
+            "text": "Force extract_invoice on every document with nullable fields, since invoices are the most common type.",
+            "lang": "json",
+            "code": "{\n  \"tools\": [invoice_tool],\n  \"tool_choice\": {\"type\": \"tool\", \"name\": \"extract_invoice\"}\n}\n// due_date: {\"type\": [\"string\", \"null\"]}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Doc 8 is a contract; must call extract_invoice anyway."
+              },
+              {
+                "who": "claude",
+                "text": "Puts the contract value in total_amount; parties and term are lost."
+              },
+              {
+                "who": "claude",
+                "text": "Doc 19 is a receipt: invents an invoice_number from the till ID."
+              },
+              {
+                "who": "app",
+                "text": "140 non-invoice documents stored as malformed invoices."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Every call succeeds, but contracts and receipts become invoices.",
+            "why": "Right pattern, wrong scope: forcing a named tool suits a step that must run, not an unknown document type. The wrong schema distorts every non-invoice."
+          },
+          {
+            "text": "Offer one tool per type with tool_choice \"any\", nullable fields such as due_date, and an \"unclear\" enum value.",
+            "lang": "python",
+            "code": "# due_date: {\"type\": [\"string\", \"null\"]}\n# currency enum includes \"unclear\" and \"other\"\nresp = client.messages.create(\n    model=MODEL, max_tokens=1024,\n    tools=[invoice_tool, receipt_tool, contract_tool],\n    tool_choice={\"type\": \"any\"},\n    messages=[{\"role\": \"user\", \"content\": doc_text}],\n)",
+            "variants": {
+              "csharp": "// illustrative: the ToolChoice shape is not in the documented C# SDK examples\n// due_date: {\"type\": [\"string\", \"null\"]}\n// currency enum includes \"unclear\" and \"other\"\nvar resp = await client.Messages.Create(new MessageCreateParams\n{\n    Model = Model, MaxTokens = 1024,\n    Tools = [invoiceTool, receiptTool, contractTool],\n    ToolChoice = new ToolChoiceAny(),\n    Messages = [new() { Role = Role.User, Content = docText }],\n});",
+              "typescript": "// due_date: {\"type\": [\"string\", \"null\"]}\n// currency enum includes \"unclear\" and \"other\"\nconst resp = await client.messages.create({\n  model: MODEL, max_tokens: 1024,\n  tools: [invoiceTool, receiptTool, contractTool],\n  tool_choice: { type: \"any\" },\n  messages: [{ role: \"user\", content: docText }],\n});"
+            },
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Doc 8: must call a tool; picks extract_contract."
+              },
+              {
+                "who": "claude",
+                "text": "Doc 51: calls extract_invoice with due_date: null."
+              },
+              {
+                "who": "claude",
+                "text": "Doc 73: currency symbol smudged; sets currency: \"unclear\"."
+              },
+              {
+                "who": "app",
+                "text": "All 500 parse. Nulls and \"unclear\" values go to a review queue."
+              }
+            ],
+            "result": "good",
+            "verdict": "Every document returns valid structured data with honest gaps.",
+            "why": "\"any\" guarantees a tool call when the right schema depends on the input, and nullable fields plus \"unclear\" stop fabrication. In current models forced choices return HTTP 400, so use \"auto\" with strict tools or structured outputs."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "Unknown document type → \"any\"; value may be absent → nullable; ambiguous → \"unclear\"."
+      },
+      {
+        "scenario": "Claude Code for Continuous Integration",
+        "title": "New kinds of finding land in wrong categories",
+        "context": "Your CI reviewer reports findings through a tool whose category field is an enum of bug, security, performance, style and tests, and a dashboard routes each finding to a team by category. Since licence and dependency checks were added, those findings arrive labelled style or security and reach the wrong teams. New kinds of finding are expected every quarter.",
+        "question": "Which schema change best handles this?",
+        "options": [
+          {
+            "text": "Change category to a free-text string so Claude can describe any kind of finding in its own words.",
+            "lang": "json",
+            "code": "\"category\": {\n  \"type\": \"string\",\n  \"description\": \"Category of the finding\"\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Writes \"licensing\", \"License issue\" and \"legal\" on three PRs."
+              },
+              {
+                "who": "app",
+                "text": "Dashboard routing rules match none of them."
+              },
+              {
+                "who": "system",
+                "text": "30% of findings land in the unrouted bucket."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Labels are honest but routing breaks.",
+            "why": "Free text loses the consistent values that downstream routing depends on. Over-correcting from an enum that is too narrow."
+          },
+          {
+            "text": "Add an \"other\" enum value plus a category_detail string, and review \"other\" findings to decide when to add values.",
+            "lang": "json",
+            "code": "\"category\": {\n  \"enum\": [\"bug\", \"security\", \"performance\",\n           \"style\", \"tests\", \"other\"]\n},\n\"category_detail\": {\n  \"type\": [\"string\", \"null\"],\n  \"description\": \"Required when category is other\"\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Licence finding: category \"other\", detail \"licence: GPL in MIT repo\"."
+              },
+              {
+                "who": "app",
+                "text": "\"other\" routes to the platform team for triage, not to style owners."
+              },
+              {
+                "who": "claude",
+                "text": "Next quarter: accessibility finding also goes to \"other\" with detail."
+              },
+              {
+                "who": "app",
+                "text": "Monthly review promotes \"licence\" to a real enum value."
+              }
+            ],
+            "result": "good",
+            "verdict": "Known categories stay consistent; new ones are visible.",
+            "why": "An \"other\" value plus a detail string keeps the enum consistent and makes it extensible. Nothing new is forced into a wrong value."
+          },
+          {
+            "text": "Add licence and dependency to the enum now, and add a further value each time a new kind of finding shows up in reviews.",
+            "lang": "json",
+            "code": "\"category\": {\n  \"enum\": [\"bug\", \"security\", \"performance\",\n           \"style\", \"tests\", \"licence\", \"dependency\"]\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Licence findings now route correctly."
+              },
+              {
+                "who": "app",
+                "text": "Next quarter: accessibility checks added to the review."
+              },
+              {
+                "who": "claude",
+                "text": "No matching value: labels them \"style\"."
+              },
+              {
+                "who": "system",
+                "text": "Wrong team receives them for six weeks before anyone notices."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fixes today, fails again next quarter.",
+            "why": "Right pattern, wrong scope: it fixes the current cases only. Without an \"other\" escape, each new kind is silently forced into a wrong value."
+          },
+          {
+            "text": "Switch tool_choice from \"auto\" to \"any\" so Claude must always report through the findings tool.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Calls the findings tool on every run, as before."
+              },
+              {
+                "who": "claude",
+                "text": "Licence finding: still labelled \"security\"."
+              },
+              {
+                "who": "app",
+                "text": "Routing errors unchanged."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Tool is called; the label is still wrong.",
+            "why": "Right pattern, wrong problem: the tool was already being called. The issue is a closed enum with no honest value for new kinds."
+          }
+        ],
+        "answer": 1,
+        "takeaway": "An enum that must grow → add \"other\" plus a detail string, not free text."
+      },
+      {
+        "scenario": "Multi-Agent Research System",
+        "title": "Citations missing because the metadata step is skipped",
+        "context": "Your document-analysis subagent should call extract_source_metadata before summarise_findings, because the report subagent builds citations from that metadata. With tool_choice \"auto\", 12% of documents go straight to summarise_findings or a text reply, and those sources appear in the report uncited. The metadata step must run first for every document.",
+        "question": "What change guarantees the metadata step runs first?",
+        "options": [
+          {
+            "text": "Set tool_choice to \"any\" so the subagent must call one of its tools for every document.",
+            "lang": "json",
+            "code": "{\n  \"tools\": [metadata_tool, summarise_tool],\n  \"tool_choice\": {\"type\": \"any\"}\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Runs on 300 source documents."
+              },
+              {
+                "who": "claude",
+                "text": "No more text replies; always calls a tool."
+              },
+              {
+                "who": "claude",
+                "text": "Doc 41: calls summarise_findings first; metadata never extracted."
+              },
+              {
+                "who": "app",
+                "text": "9% of sources still reach the report uncited."
+              }
+            ],
+            "result": "bad",
+            "verdict": "A tool is always called, but not always the right one first.",
+            "why": "\"any\" guarantees some tool call, not a specific one. Right pattern, wrong scope for a step that must run first."
+          },
+          {
+            "text": "Add a bold system-prompt rule: \"ALWAYS call extract_source_metadata before summarise_findings.\"",
+            "lang": "markdown",
+            "code": "## IMPORTANT\nFor every document:\n1. ALWAYS call extract_source_metadata first.\n2. Only then call summarise_findings.\nNever skip step 1.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Runs on 300 source documents."
+              },
+              {
+                "who": "claude",
+                "text": "Follows the rule on most documents."
+              },
+              {
+                "who": "claude",
+                "text": "Short news item: summarises directly in text."
+              },
+              {
+                "who": "app",
+                "text": "4% of sources still uncited in the final report."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Better, but still not guaranteed.",
+            "why": "A prompt rule is probabilistic, and the requirement is that the step always runs. Trap: instructions where a forced tool choice is needed."
+          },
+          {
+            "text": "Force the first call with tool_choice naming extract_source_metadata, then switch to \"auto\" for the later calls.",
+            "lang": "json",
+            "code": "// first request for each document\n{\"tool_choice\": {\"type\": \"tool\",\n  \"name\": \"extract_source_metadata\"}}\n\n// follow-up requests\n{\"tool_choice\": {\"type\": \"auto\"}}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "First request for doc 41 forces extract_source_metadata."
+              },
+              {
+                "who": "claude",
+                "text": "Returns title, author, date and URL."
+              },
+              {
+                "who": "app",
+                "text": "Follow-up request with \"auto\": subagent calls summarise_findings."
+              },
+              {
+                "who": "app",
+                "text": "All 300 sources cited in the final report."
+              }
+            ],
+            "result": "good",
+            "verdict": "Metadata extracted first on every document.",
+            "why": "A forced tool choice guarantees that the named tool runs before anything else. In current models forced choices return HTTP 400, so enforce the order in code instead."
+          },
+          {
+            "text": "Add required author, date and URL fields to summarise_findings so a summary cannot be made without them.",
+            "lang": "json",
+            "code": "\"summarise_findings\": {\n  \"required\": [\"summary\", \"author\",\n               \"date\", \"url\"],\n  \"author\": {\"type\": \"string\"},\n  \"date\": {\"type\": \"string\"}\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Doc 41 has no visible author or date."
+              },
+              {
+                "who": "claude",
+                "text": "Fills author \"Staff Writer\" and date \"2024-01-01\" to satisfy the schema."
+              },
+              {
+                "who": "app",
+                "text": "Report cites a date the source never states."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Every summary has metadata, some of it invented.",
+            "why": "Required fields push Claude to fabricate values the source lacks. It also skips the dedicated metadata step instead of guaranteeing it."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "A tool must run first → force that tool; \"any\" only guarantees that some tool runs."
+      }
+    ],
+    "checks": [
+      {
+        "q": "Tool use with a schema returns valid JSON. Why might the data still be wrong?",
+        "a": "Schemas fix syntax, not meaning. Line items might not sum to the total, or a value might be in the wrong field."
+      },
+      {
+        "q": "You have three extraction tools and do not know the document type. Which `tool_choice`?",
+        "a": "`{\"type\": \"any\"}`, so Claude must call one of them and picks the matching schema. `\"auto\"` might return text."
+      },
+      {
+        "q": "Claude keeps inventing due dates for invoices that have none. What do you change?",
+        "a": "Make the field nullable or optional so Claude can return null when the source lacks the value."
+      }
+    ],
+    "quiz": [
+      {
+        "q": "Your pipeline asks Claude to \"reply in JSON\" and about 2% of responses fail to parse. What is the most reliable fix?",
+        "options": [
+          "Add \"return only valid JSON, no prose\" in capitals.",
+          "Retry any response that fails to parse.",
+          "Strip any text before the first brace, then parse.",
+          "Define an extraction tool with a JSON schema."
+        ],
+        "answer": 3,
+        "why": "Prompted JSON is probabilistic. Tool use with a JSON schema eliminates syntax errors."
+      },
+      {
+        "q": "Invoices without a due date come back with plausible but invented dates. What should change?",
+        "options": [
+          "Mark `due_date` required so it is always present.",
+          "Allow null for `due_date` in the schema.",
+          "Add a stricter date pattern to the schema.",
+          "Switch `tool_choice` from `any` to `auto`."
+        ],
+        "answer": 1,
+        "why": "When the source can lack a value, a nullable field lets Claude say so. Required or stricter fields push it to fabricate."
+      },
+      {
+        "q": "You have invoice, receipt and contract tools and the document type is unknown. In exam terms, which `tool_choice` guarantees a structured result?",
+        "options": [
+          "`{\"type\": \"auto\"}`",
+          "`{\"type\": \"none\"}`",
+          "`{\"type\": \"any\"}`",
+          "`{\"type\": \"tool\", \"name\": \"extract_invoice\"}`"
+        ],
+        "answer": 2,
+        "why": "`any` forces a tool call but lets Claude pick the matching schema. `auto` may reply in text, and forcing `extract_invoice` would misfile receipts and contracts."
+      },
+      {
+        "q": "Tool output passes the schema, but the line items sum to £940 while `stated_total` is £1,040. What kind of error is this?",
+        "options": [
+          "A semantic error that needs a value check.",
+          "A syntax error the schema should have caught.",
+          "A `tool_choice` error caused by using `any`.",
+          "A parsing error caused by prompted JSON."
+        ],
+        "answer": 0,
+        "why": "Schemas fix syntax, not meaning. Totals that disagree need a semantic check such as comparing `calculated_total` with `stated_total`."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "Schema-valid output is correct output.",
+        "fact": "Schemas remove syntax errors, not semantic ones. Totals and field placement still need checks."
+      },
+      {
+        "myth": "Making every field required gives complete records.",
+        "fact": "It pushes Claude to fabricate missing values. Use nullable fields for data the source may lack."
+      },
+      {
+        "myth": "Forced `tool_choice` works on every model.",
+        "fact": "It is the exam answer, but on Opus 5.5, Sonnet 5.5 and Fable 5.1 it returns 400. Use strict tools or `output_config.format` there."
+      }
+    ],
+    "scenario": {
+      "title": "Structured Data Extraction",
+      "story": "An accounts-payable team had a shared inbox of unlabelled PDFs: invoices, receipts and the odd contract. Their first version asked Claude to \"return the fields as JSON\" and parsed the reply. On a run of 500 documents, 11 failed to parse, and field names drifted between `due_date` and `dueDate`.\n\nThey moved to three extraction tools with JSON schemas. Parse errors stopped, but two new problems appeared. With `tool_choice` set to `auto`, a scanned letter got a text reply and was silently dropped. And because `due_date` had to be a string, invoices with no due date came back with invented dates. Finance chased a payment that was never due.\n\nThe fix was in the design. They set `tool_choice` to `any` so every document produced a tool call, made `due_date` nullable and added `\"unclear\"` to the currency enum. Nulls and unclear values went to a review queue. When they later moved to Sonnet 5.5, forced choices returned 400, so they switched to structured outputs with `output_config.format`."
+    }
+  },
+  {
+    "id": "4.4",
+    "plain": "After Claude extracts data, your code checks it. If a check fails, you can send it back with the error and ask for a fix. That works when Claude made a mistake, but not when the information is simply not in the document. Good fields also let you spot conflicts in the source and learn which findings people keep rejecting.",
+    "analogy": "A teacher can hand back a maths test saying \"question 3: your sum is wrong\", and the student can fix it. No amount of handing back will help if the question needed a table that was never in the exam paper.",
+    "sections": [
+      {
+        "h": "What a validation loop is",
+        "body": "**Check every output in code, retry with targeted feedback, and route what cannot be fixed.**\n\nA validation loop has three steps:\n\n1. **Validate.** Your code checks the output. Does it match the schema? Is `due_date` in YYYY-MM-DD? Do the line items add up?\n2. **Retry with error feedback.** If a check fails, send a new request with the **original document**, the **failed extraction** and the **specific validation errors**, such as \"due_date '3rd March' is not YYYY-MM-DD\".\n3. **Accept or route.** If it passes, keep it. If it still fails after a capped number of retries (two is common), flag it for a person.\n\nAll three parts of the feedback matter. Claude re-reads the document, sees exactly what it wrote, and corrects only what is wrong. \"Validation failed, try again\" gives it nothing to work from."
+      },
+      {
+        "h": "When retrying helps",
+        "body": "**Retries fix format and structure; they cannot create information the source does not contain.**\n\nBefore retrying, ask one question: **is the correct value in the document I sent?**\n\n- **Yes.** Retries work well: a date in the wrong format, an amount in pence instead of pounds, a field left out that is plainly on the page. One targeted retry usually fixes these.\n- **No.** Retries are pointless. If the PO number appears only on a separate purchase order that was never sent, \"try harder\" cannot find it. Claude can only guess, and a guessed PO number that passes validation is worse than a null.\n\nFor absent values, set the field to null and flag it, or route the record to someone who has the other document. Sort errors into these two groups in code, so you retry only the first group."
+      },
+      {
+        "h": "Fields that expose problems",
+        "body": "**Some fields exist only to make semantic errors and messy sources visible.**\n\nA schema cannot tell you that numbers disagree. Extra fields can:\n\n- **`calculated_total` next to `stated_total`.** Claude adds up the line items itself and also copies the printed total. If £940 sits next to £1,040, your validator catches it.\n- **`conflict_detected`.** A boolean Claude sets when the source contradicts itself, for example two different totals on one invoice. It reports both instead of quietly picking one. Forcing reconciliation hides a problem a person should see.\n- **`detected_pattern` on review findings.** Each finding records the pattern it matched, such as \"broad-except\". Later you can count which patterns developers dismiss as false positives and tighten those criteria (lesson 4.1)."
+      },
+      {
+        "h": "What goes wrong",
+        "body": "**The usual failures are blind retries, thin feedback, forced answers and loosened schemas.**\n\n- **\"Try harder\" for absent data.** It costs calls and invites fabrication. Check the source first.\n- **Error-only feedback.** Without the document and the previous output, Claude rebuilds the record from scratch and may make new mistakes.\n- **Asking Claude to reconcile** conflicting totals into one number. Use `conflict_detected` and let a person decide.\n- **Loosening the schema** so the date check stops failing. \"3rd March\" then flows into the payments system, which cannot parse it, and the supplier is paid late.\n- **Unbounded retries.** Cap them. A stubborn error should end in a review queue, not a loop.\n\nExam habit: check whether the missing or wrong value exists in the provided source. That decides whether retrying can help."
+      }
+    ],
+    "diagram": {
+      "type": "flow",
+      "title": "Validate, retry or route",
+      "steps": [
+        {
+          "label": "Extract with tool",
+          "note": "Schema-shaped output",
+          "kind": "start"
+        },
+        {
+          "label": "Validate in code",
+          "note": "Schema, formats, totals, conflicts",
+          "kind": "step"
+        },
+        {
+          "label": "Value in source?",
+          "note": "Decides whether a retry can help",
+          "kind": "decision"
+        },
+        {
+          "label": "Retry with feedback",
+          "note": "Document, failed output, specific errors",
+          "kind": "tool"
+        },
+        {
+          "label": "Accept or route",
+          "note": "Pass, or flag absent data",
+          "kind": "good"
+        }
+      ],
+      "loop": {
+        "from": 3,
+        "to": 1,
+        "label": "Re-validate; cap at two retries"
+      }
+    },
+    "example": {
+      "title": "Worked example: retry with full error feedback",
+      "lang": "python",
+      "code": "def extract_with_retry(doc_text, max_retries=2):\n    result = extract(doc_text)  # tool-use call, see lesson 4.3\n    for _ in range(max_retries):\n        errors = validate(result)\n        if not errors:\n            return result\n        if all(e.kind == \"absent_in_source\" for e in errors):\n            return flag_for_review(result, errors)  # no retry\n        feedback = (\n            \"Document:\\n\" + doc_text +\n            \"\\n\\nYour previous extraction:\\n\" + json.dumps(result) +\n            \"\\n\\nValidation errors:\\n\" +\n            \"\\n\".join(e.message for e in errors) +\n            \"\\n\\nCorrect only these errors.\"\n        )\n        result = extract(feedback)\n    return flag_for_review(result, validate(result))\n\n# validate() also checks: abs(calculated_total - stated_total) < 0.01\n# and routes any record with conflict_detected == True",
+      "variants": {
+        "csharp": "Extraction ExtractWithRetry(string docText, int maxRetries = 2)\n{\n    var result = Extract(docText);  // tool-use call, see lesson 4.3\n    for (var i = 0; i < maxRetries; i++)\n    {\n        var errors = Validate(result);\n        if (errors.Count == 0)\n            return result;\n        if (errors.All(e => e.Kind == \"absent_in_source\"))\n            return FlagForReview(result, errors);  // no retry\n        var feedback =\n            \"Document:\\n\" + docText +\n            \"\\n\\nYour previous extraction:\\n\" + JsonSerializer.Serialize(result) +\n            \"\\n\\nValidation errors:\\n\" +\n            string.Join(\"\\n\", errors.Select(e => e.Message)) +\n            \"\\n\\nCorrect only these errors.\";\n        result = Extract(feedback);\n    }\n    return FlagForReview(result, Validate(result));\n}\n\n// Validate() also checks: Math.Abs(calculated_total - stated_total) < 0.01\n// and routes any record with conflict_detected == true",
+        "typescript": "function extractWithRetry(docText: string, maxRetries = 2) {\n  let result = extract(docText); // tool-use call, see lesson 4.3\n  for (let i = 0; i < maxRetries; i++) {\n    const errors = validate(result);\n    if (errors.length === 0) {\n      return result;\n    }\n    if (errors.every((e) => e.kind === \"absent_in_source\")) {\n      return flagForReview(result, errors); // no retry\n    }\n    const feedback =\n      \"Document:\\n\" + docText +\n      \"\\n\\nYour previous extraction:\\n\" + JSON.stringify(result) +\n      \"\\n\\nValidation errors:\\n\" +\n      errors.map((e) => e.message).join(\"\\n\") +\n      \"\\n\\nCorrect only these errors.\";\n    result = extract(feedback);\n  }\n  return flagForReview(result, validate(result));\n}\n\n// validate() also checks: Math.abs(calculated_total - stated_total) < 0.01\n// and routes any record with conflict_detected === true"
+      },
+      "notes": [
+        "The feedback contains all three parts: the original document, the failed extraction and the specific errors.",
+        "Errors about data absent from the source skip the retry and go to review.",
+        "The retry count is capped, so a stubborn error ends in review, not an endless loop.",
+        "The `calculated_total` versus `stated_total` check catches arithmetic errors a schema cannot.",
+        "`conflict_detected` records are routed, not forced into one answer."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Structured Data Extraction",
+        "title": "Invoice fails validation on two fields",
+        "context": "An invoice extraction fails validation: due_date is \"3rd March\" instead of YYYY-MM-DD, and po_number is null. The PO number appears only in a separate purchase order that was not sent with the invoice. Records must never contain invented values.",
+        "question": "Which recovery is most appropriate?",
+        "options": [
+          {
+            "text": "Retry only the date error with the document, failed output and error message; keep po_number null and flag it.",
+            "lang": "python",
+            "code": "feedback = (\n    \"Document:\\n\" + doc_text +\n    \"\\nPrevious extraction:\\n\" + json.dumps(result) +\n    \"\\nErrors:\\n- due_date must be YYYY-MM-DD\"\n)\nresult = extract(feedback)\nresult[\"po_number\"] = None\nflag_for_review(result, \"po_number only in PO document\")",
+            "variants": {
+              "csharp": "var feedback =\n    \"Document:\\n\" + docText +\n    \"\\nPrevious extraction:\\n\" + JsonSerializer.Serialize(result) +\n    \"\\nErrors:\\n- due_date must be YYYY-MM-DD\";\nresult = Extract(feedback);\nresult[\"po_number\"] = null;\nFlagForReview(result, \"po_number only in PO document\");",
+              "typescript": "const feedback =\n  \"Document:\\n\" + docText +\n  \"\\nPrevious extraction:\\n\" + JSON.stringify(result) +\n  \"\\nErrors:\\n- due_date must be YYYY-MM-DD\";\nresult = extract(feedback);\nresult.po_number = null;\nflagForReview(result, \"po_number only in PO document\");"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Classifies errors: due_date = format error; po_number = absent from source."
+              },
+              {
+                "who": "app",
+                "text": "Retries with document + previous output + the date error only."
+              },
+              {
+                "who": "claude",
+                "text": "Re-reads the invoice year and returns due_date: \"2025-03-03\"."
+              },
+              {
+                "who": "app",
+                "text": "Validation passes for due_date. po_number stays null and is routed to AP team."
+              }
+            ],
+            "result": "good",
+            "verdict": "Format fixed in one retry; the missing value is flagged, not invented.",
+            "why": "Retries fix format errors when given the document, the failed output and the specific error. Information absent from the source is flagged or routed, not retried."
+          },
+          {
+            "text": "Retry with a short message saying validation failed and asking Claude to try harder and fill every field.",
+            "lang": "python",
+            "code": "result = extract(\n    \"Validation failed. Try harder and make sure \"\n    \"every field is filled in.\"\n)",
+            "variants": {
+              "csharp": "result = Extract(\n    \"Validation failed. Try harder and make sure \" +\n    \"every field is filled in.\"\n);",
+              "typescript": "result = extract(\n  \"Validation failed. Try harder and make sure \" +\n  \"every field is filled in.\"\n);"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Sends a retry with only the message; no document, no previous output."
+              },
+              {
+                "who": "claude",
+                "text": "Has no invoice to re-read. Produces a new record from scratch."
+              },
+              {
+                "who": "claude",
+                "text": "Fills po_number with \"PO-10023\" to satisfy \"every field filled\"."
+              },
+              {
+                "who": "app",
+                "text": "Validation passes. A fabricated PO number enters the ledger."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Validation passes on invented data.",
+            "why": "Feedback without the document and failed output gives Claude nothing to correct against. No retry can supply a value that is not in the source."
+          },
+          {
+            "text": "Loosen the schema: drop the date pattern check and allow po_number to be null so validation passes.",
+            "lang": "json",
+            "code": "{\n  \"due_date\": {\"type\": \"string\"},\n  \"po_number\": {\"type\": [\"string\", \"null\"]}\n}\n// removed the YYYY-MM-DD pattern check",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Validator no longer checks the date pattern."
+              },
+              {
+                "who": "app",
+                "text": "Record passes with due_date: \"3rd March\"."
+              },
+              {
+                "who": "tool",
+                "text": "Payments system cannot parse \"3rd March\"; invoice skipped in the payment run."
+              },
+              {
+                "who": "user",
+                "text": "Supplier calls about a late payment two weeks later."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Validation stops failing, but the bad data flows downstream.",
+            "why": "Loosening the schema hides errors instead of correcting them. The date format was fixable with targeted feedback."
+          },
+          {
+            "text": "Retry both errors with the document, the failed extraction and the specific errors, up to three times, until validation passes.",
+            "lang": "python",
+            "code": "errors = validate(result)  # date format + po_number null\nfor attempt in range(3):\n    feedback = build_feedback(doc_text, result, errors)\n    result = extract(feedback)\n    errors = validate(result)\n    if not errors:\n        break\nelse:\n    dead_letter(result, errors)",
+            "variants": {
+              "csharp": "var errors = Validate(result);  // date format + po_number null\nfor (var attempt = 0; attempt < 3; attempt++)\n{\n    var feedback = BuildFeedback(docText, result, errors);\n    result = Extract(feedback);\n    errors = Validate(result);\n    if (errors.Count == 0) break;\n}\nif (errors.Count > 0) DeadLetter(result, errors);",
+              "typescript": "let errors = validate(result); // date format + po_number null\nfor (let attempt = 0; attempt < 3; attempt++) {\n  const feedback = buildFeedback(docText, result, errors);\n  result = extract(feedback);\n  errors = validate(result);\n  if (errors.length === 0) break;\n}\nif (errors.length > 0) deadLetter(result, errors);"
+            },
+            "trace": [
+              {
+                "who": "app",
+                "text": "Retry 1 with document, failed output and both errors."
+              },
+              {
+                "who": "claude",
+                "text": "Fixes due_date to \"2025-03-03\"; po_number is not in the invoice."
+              },
+              {
+                "who": "app",
+                "text": "Retries 2 and 3: po_number still null; validation still fails."
+              },
+              {
+                "who": "app",
+                "text": "Whole record, including the fixed date, goes to the dead-letter queue."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Wasted retries, and the good fix is stuck with the bad field.",
+            "why": "Right pattern, wrong problem for po_number: retries fix format errors, not information missing from the source. Classify each error before deciding to retry."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Retry format errors with full feedback; flag values that are not in the source."
+      },
+      {
+        "scenario": "Claude Code for Continuous Integration",
+        "title": "Dismissals jump but nobody knows which findings",
+        "context": "After a model upgrade, the share of CI review findings that developers dismiss rose from 12% to 35%. Each finding carries only a file, a line and a free-text message, so dismissals cannot be grouped by kind. The team wants to find which kinds of finding are now being dismissed so it can rewrite those criteria.",
+        "question": "What change best enables that analysis?",
+        "options": [
+          {
+            "text": "Add a confidence score to each finding and suppress findings that score below 0.7 before they are posted.",
+            "lang": "json",
+            "code": "{\n  \"file\": \"src/api.py\", \"line\": 88,\n  \"message\": \"...\",\n  \"confidence\": 0.64\n}\n// suppress if confidence < 0.7",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Suppresses 22% of findings, including 9 real bugs."
+              },
+              {
+                "who": "app",
+                "text": "Dismissal rate falls to 29%."
+              },
+              {
+                "who": "user",
+                "text": "Team still cannot say which kinds of finding are dismissed."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Fewer posts, no insight.",
+            "why": "Right pattern, wrong problem: it filters output but answers nothing about which kinds are dismissed. Confidence filtering also drops real bugs."
+          },
+          {
+            "text": "Ask developers to choose a dismissal reason from a short dropdown whenever they dismiss a finding.",
+            "lang": "yaml",
+            "code": "dismiss_reasons:\n  - not_a_bug\n  - not_useful\n  - already_known\n  - other",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Developers pick \"not_useful\" for 70% of dismissals."
+              },
+              {
+                "who": "app",
+                "text": "Reasons say why it was rejected, not what the bot detected."
+              },
+              {
+                "who": "user",
+                "text": "Team still cannot map dismissals to review criteria."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Data on feelings, not on patterns.",
+            "why": "Dismissal reasons describe the developer's reaction, not which pattern the reviewer flagged. Without a pattern label on the finding, nothing can be grouped by criteria."
+          },
+          {
+            "text": "Add a detected_pattern field to each finding, such as \"unchecked-null-return\", then group dismissals by that pattern.",
+            "lang": "json",
+            "code": "{\n  \"file\": \"src/api.py\", \"line\": 88,\n  \"detected_pattern\": \"unchecked-null-return\",\n  \"message\": \"get_user() may return None\",\n  \"severity\": \"major\"\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Each finding now carries a detected_pattern value."
+              },
+              {
+                "who": "app",
+                "text": "One week: 1,140 findings, 400 dismissed."
+              },
+              {
+                "who": "app",
+                "text": "Grouping shows \"missing-docstring\" is 61% of dismissals."
+              },
+              {
+                "who": "user",
+                "text": "Team rewrites that one criterion; dismissals fall to 14%."
+              }
+            ],
+            "result": "good",
+            "verdict": "The noisy pattern is found in a week.",
+            "why": "A detected_pattern field makes each finding's pattern explicit, so dismissals can be analysed by kind. That points straight at the criteria to rewrite."
+          },
+          {
+            "text": "Feed each dismissed finding back to the reviewer, with the diff and the dismissal as error feedback, so it corrects itself.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Dismissed finding sent back with the diff and \"dismissed\"."
+              },
+              {
+                "who": "claude",
+                "text": "Rephrases the same finding more cautiously."
+              },
+              {
+                "who": "app",
+                "text": "Re-posts it on the PR; developer dismisses it again."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Same finding, reworded, dismissed twice.",
+            "why": "Right pattern, wrong problem: retry-with-feedback fixes validation errors, and a dismissal is not one. It also gives the team no grouped data."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "To learn which findings developers dismiss, give each finding a detected_pattern field."
+      },
+      {
+        "scenario": "Multi-Agent Research System",
+        "title": "Synthesis averages two conflicting market figures",
+        "context": "Your synthesis subagent merges findings from several sources into one figure per metric. Two credible sources give the 2024 market size as $4.1bn and $6.3bn, and the final report shows $5.2bn with both citations, a number neither source states. Readers must be able to see when sources disagree.",
+        "question": "What change best handles this?",
+        "options": [
+          {
+            "text": "Retry the synthesis step with both sources and a validation error saying the figure matches neither citation.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Validator: \"$5.2bn does not appear in either source.\""
+              },
+              {
+                "who": "claude",
+                "text": "Retry picks $4.1bn and drops the second citation."
+              },
+              {
+                "who": "app",
+                "text": "Validation passes; the disagreement is now hidden."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Passes validation by hiding one source.",
+            "why": "Retries fix extraction errors, not inconsistent sources. Forcing one value hides the disagreement readers need to see."
+          },
+          {
+            "text": "Have synthesis keep both values with their sources and set conflict_detected, so the report shows the disagreement.",
+            "lang": "json",
+            "code": "{\n  \"metric\": \"market_size_2024\",\n  \"values\": [\n    {\"value\": \"4.1bn\", \"source\": \"S3\"},\n    {\"value\": \"6.3bn\", \"source\": \"S7\"}\n  ],\n  \"conflict_detected\": true\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Finds two values for market_size_2024; sets conflict_detected."
+              },
+              {
+                "who": "app",
+                "text": "Report subagent writes: \"Estimates range from $4.1bn [S3] to $6.3bn [S7].\""
+              },
+              {
+                "who": "user",
+                "text": "Reader sees the range and both citations."
+              }
+            ],
+            "result": "good",
+            "verdict": "Disagreement surfaced with both sources cited.",
+            "why": "A conflict_detected flag surfaces inconsistent source data instead of forcing a reconciliation. Both values keep their citations."
+          },
+          {
+            "text": "Tell the synthesis subagent to use the most recent source whenever two sources give different figures.",
+            "lang": "markdown",
+            "code": "Synthesis rules:\n- Output one value per metric.\n- When sources disagree on a figure, use the\n  value from the most recently published source.\n- Cite the source you used.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "S7, a recent press release, is newer than S3, an audited report."
+              },
+              {
+                "who": "app",
+                "text": "Report states $6.3bn [S7] only."
+              },
+              {
+                "who": "user",
+                "text": "Reader never learns the audited estimate was $4.1bn."
+              }
+            ],
+            "result": "bad",
+            "verdict": "One clean number, the conflict erased.",
+            "why": "A tie-break rule still forces a reconciliation and hides the inconsistency. Readers were meant to see the disagreement."
+          },
+          {
+            "text": "Add a fact-checking subagent that researches further and decides which figure is correct before synthesis runs.",
+            "lang": "yaml",
+            "code": "subagents:\n  - fact_checker:\n      task: resolve conflicting figures\n      tools: [web_search, fetch]\n  - synthesis",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Fact-checker finds a third estimate: $5.0bn."
+              },
+              {
+                "who": "claude",
+                "text": "Picks $5.0bn as \"most balanced\"."
+              },
+              {
+                "who": "app",
+                "text": "Run time up 40%; report states one figure again."
+              }
+            ],
+            "result": "bad",
+            "verdict": "More work, still one forced number.",
+            "why": "Over-engineered: a new subagent before the proportionate fix, and it still collapses the conflict into one value. Surfacing the conflict is the requirement."
+          }
+        ],
+        "answer": 1,
+        "takeaway": "Sources disagree → keep both values and set conflict_detected; never force one number."
+      }
+    ],
+    "checks": [
+      {
+        "q": "What three things should a retry-with-feedback request contain?",
+        "a": "The original document, the failed extraction, and the specific validation errors."
+      },
+      {
+        "q": "A required value only exists in a document you did not send. Should you retry?",
+        "a": "No. A retry cannot supply information that is absent from the source. Flag the field or route it to someone with the other document."
+      },
+      {
+        "q": "An invoice shows two different totals. What should the extraction do?",
+        "a": "Set `conflict_detected` to true and report both, rather than forcing Claude to reconcile them into one number."
+      }
+    ],
+    "quiz": [
+      {
+        "q": "An extraction fails because `due_date` is \"3rd March\" instead of YYYY-MM-DD. What should the retry request contain?",
+        "options": [
+          "The document, the failed output and the specific error.",
+          "Only the error message, to keep the request short.",
+          "The document and an instruction to try harder.",
+          "The failed extraction and a looser date schema."
+        ],
+        "answer": 0,
+        "why": "Effective feedback includes all three: the source to re-read, the output to correct and the exact error."
+      },
+      {
+        "q": "`po_number` is null because it appears only on a purchase order that was not sent. What do you do?",
+        "options": [
+          "Retry up to three times with full feedback.",
+          "Retry and tell Claude every field must be filled.",
+          "Leave it null and flag or route the record.",
+          "Remove `po_number` from the schema for good."
+        ],
+        "answer": 2,
+        "why": "No retry can supply information absent from the source. Flag it or route it to someone with the other document."
+      },
+      {
+        "q": "An invoice prints two different totals. How should the extraction handle it?",
+        "options": [
+          "Ask Claude to choose the more likely total.",
+          "Set `conflict_detected` and report both values.",
+          "Average the two into a single `stated_total`.",
+          "Retry until Claude returns a single total."
+        ],
+        "answer": 1,
+        "why": "Forcing reconciliation hides the inconsistency. `conflict_detected` surfaces it for a person to resolve."
+      },
+      {
+        "q": "Which field lets you learn which review findings developers dismiss as false positives?",
+        "options": [
+          "A confidence score on each finding.",
+          "A `conflict_detected` flag on each finding.",
+          "A `calculated_total` on each review run.",
+          "A `detected_pattern` field on each finding."
+        ],
+        "answer": 3,
+        "why": "Tagging each finding with the pattern it matched lets you count which patterns get dismissed and fix those criteria."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "A retry can fix any validation failure.",
+        "fact": "Retries fix format and structure. If the value is not in the source, no retry can supply it."
+      },
+      {
+        "myth": "If validation keeps failing, loosen the schema.",
+        "fact": "That hides errors, which then break downstream systems. Fix them with targeted feedback."
+      },
+      {
+        "myth": "Claude should reconcile inconsistent source data into one answer.",
+        "fact": "Flag it with `conflict_detected` so a person sees the inconsistency."
+      }
+    ],
+    "scenario": {
+      "title": "Structured Data Extraction",
+      "story": "A logistics firm extracts invoices into its payments system. Validation started failing on about 5% of records, so an engineer added a quick fix: on any failure, call Claude again with \"Validation failed. Try harder and make sure every field is filled in.\"\n\nFailures dropped to almost zero. A month later an auditor found purchase-order numbers in the ledger that matched no real order. The PO number usually lives on a separate purchase order, which the pipeline never sent. The retry had pushed Claude to invent one, and the validator, which only checked the format, accepted it.\n\nThe team rebuilt the loop. The validator now labels each error as either a format problem or \"absent in source\". Format problems, such as \"3rd March\" for a due date, get one retry that includes the original invoice, the failed extraction and the exact error. Absent values stay null and go to the accounts team. They also added `calculated_total` and `conflict_detected`, which caught three invoices with mismatched totals in the first week."
+    }
+  },
+  {
+    "id": "4.5",
+    "plain": "The Message Batches API lets you send many requests at once and collect the answers later, at half the normal price. The catch is that results can take up to 24 hours and there is no promise of speed. It suits work nobody is waiting on, not work that blocks a person or a merge.",
+    "analogy": "It is like posting a parcel by the cheap, slow service. Fine for a birthday present sent weeks early; useless for the contract that must be signed today.",
+    "currentNote": "A batch request can include tool definitions and earlier conversation turns, including past tool results. What it cannot do is complete a client-side tool round trip inside the batch: each turn that needs your tool's result must be another request or batch. Most batches finish within an hour, but 24 hours is the only guarantee.",
+    "sections": [
+      {
+        "h": "What it is",
+        "body": "**The Message Batches API halves the cost in exchange for slower, unguaranteed turnaround.**\n\nA batch is a list of ordinary Messages requests submitted in one go. They are processed in the background and you collect the results later.\n\nKey facts:\n\n- **50% cheaper** than the same requests sent synchronously.\n- **Up to 24 hours** to process. Most batches finish within an hour, but there is **no latency SLA**, meaning no promise of speed. Requests still unfinished at 24 hours expire.\n- Each request carries a **`custom_id`** (1 to 64 letters, digits, `-` or `_`) that you use to match its result.\n- Each result has a type: `succeeded`, `errored`, `canceled` or `expired`.\n\nThink of it as posting letters instead of making phone calls. It is cheaper, but you cannot stand at the counter waiting for the reply."
+      },
+      {
+        "h": "How it works, step by step",
+        "body": "**Test on a sample, submit with unique IDs, match results by `custom_id`, and resubmit only the failures.**\n\n1. **Refine the prompt on a sample** of, say, 50 documents with the normal API. Finding a prompt bug after 10,000 items is expensive.\n2. **Build the requests.** Each has a unique `custom_id` such as `\"doc-00417\"` and the usual `params`: model, max_tokens, messages.\n3. **Submit** the batch and poll until `processing_status` is `\"ended\"`.\n4. **Read the results by `custom_id`.** They can come back in any order, so never pair them with requests by position.\n5. **Handle failures item by item.** Save `succeeded` results. For the rest, fix the cause, for example by chunking an oversized document, and resubmit **only those** items.\n\nRerunning the whole batch pays again for everything that already worked, and unfixed items simply fail again."
+      },
+      {
+        "h": "When to use batch and when not to",
+        "body": "**If someone is waiting, or the job needs a tool round trip, use the synchronous API.**\n\nAsk two questions:\n\n- **Does a person or a merge wait on the result?** A pre-merge check blocks a developer, so it stays synchronous. Overnight reports, weekly audits and nightly test generation can wait, so they suit batch.\n- **Does the job need your tool's result mid-request?** A batch request can include tools and earlier turns, but it cannot call your tool, receive the result and carry on inside the batch. An agent that searches, reads and searches again would need a new request or batch for every turn. In exam terms: no multi-turn tool calling within a request.\n\n\"Batches usually finish quickly\" is not a reason to batch blocking work. Usually is not a guarantee, and one slow batch can hold up merges for a day."
+      },
+      {
+        "h": "Planning around the window",
+        "body": "**Plan deadlines on the full 24 hours, not on how fast batches usually are.**\n\nSuppose you promise results within **30 hours** of a document arriving. Processing can take up to 24 hours, which leaves 6 hours for waiting before submission.\n\nIf you submit the accumulated documents every **4 hours**:\n\n- a document that arrives just after a submission waits up to 4 hours;\n- it then takes up to 24 hours to process;\n- worst case: 28 hours, inside the 30-hour promise.\n\nSubmitting once a day would break the promise, because a document could wait nearly 24 hours before it is even sent.\n\nWhen not to plan this way: if the deadline is shorter than 24 hours, batch cannot guarantee it at all, so use the synchronous API."
+      }
+    ],
+    "diagram": {
+      "type": "compare",
+      "title": "Synchronous API vs Message Batches API",
+      "left": {
+        "title": "Synchronous API",
+        "tone": "neutral",
+        "items": [
+          "Answer in seconds",
+          "Full price",
+          "Pre-merge checks and chat",
+          "Agent loops with tool round trips"
+        ]
+      },
+      "right": {
+        "title": "Message Batches API",
+        "tone": "neutral",
+        "items": [
+          "Up to 24 hours, no latency SLA",
+          "50% cheaper",
+          "Nightly reports and weekly audits",
+          "Results matched by custom_id"
+        ]
+      }
+    },
+    "example": {
+      "title": "Worked example: nightly batch with resubmit-by-id",
+      "lang": "python",
+      "code": "requests = [\n    {\"custom_id\": f\"doc-{d.id}\",\n     \"params\": {\"model\": MODEL, \"max_tokens\": 2048,\n                \"messages\": [{\"role\": \"user\", \"content\": d.text}]}}\n    for d in tonight_docs\n]\nbatch = client.messages.batches.create(requests=requests)\n\n# later, once batches.retrieve(batch.id).processing_status == \"ended\"\nfailed = []\nfor r in client.messages.batches.results(batch.id):\n    if r.result.type == \"succeeded\":\n        save(r.custom_id, r.result.message.content)\n    else:  # errored, expired or canceled\n        failed.append(r.custom_id)\n\nretry = [fix_request(cid) for cid in failed]  # e.g. chunk big docs\nif retry:\n    client.messages.batches.create(requests=retry)",
+      "variants": {
+        "csharp": "// illustrative: batch result shapes are not in the documented C# SDK examples\nvar requests = tonightDocs.Select(d => new BatchCreateParamsRequest\n{\n    CustomID = $\"doc-{d.Id}\",\n    Params = new() { Model = Model, MaxTokens = 2048,\n                     Messages = [new() { Role = Role.User, Content = d.Text }] },\n}).ToList();\nvar batch = await client.Messages.Batches.Create(new() { Requests = requests });\n\n// later, once Batches.Retrieve(batch.ID).ProcessingStatus == \"ended\"\nvar failed = new List<string>();\nawait foreach (var r in client.Messages.Batches.Results(batch.ID))\n{\n    if (r.Result.TryPickSucceeded(out var ok))\n        Save(r.CustomID, ok.Message.Content);\n    else  // errored, expired or canceled\n        failed.Add(r.CustomID);\n}\n\nvar retry = failed.Select(cid => FixRequest(cid)).ToList();  // e.g. chunk big docs\nif (retry.Count > 0)\n    await client.Messages.Batches.Create(new() { Requests = retry });",
+        "typescript": "const requests = tonightDocs.map((d) => ({\n  custom_id: `doc-${d.id}`,\n  params: { model: MODEL, max_tokens: 2048,\n            messages: [{ role: \"user\" as const, content: d.text }] },\n}));\nconst batch = await client.messages.batches.create({ requests });\n\n// later, once batches.retrieve(batch.id).processing_status === \"ended\"\nconst failed: string[] = [];\nfor await (const r of await client.messages.batches.results(batch.id)) {\n  if (r.result.type === \"succeeded\") {\n    save(r.custom_id, r.result.message.content);\n  } else { // errored, expired or canceled\n    failed.push(r.custom_id);\n  }\n}\n\nconst retry = failed.map((cid) => fixRequest(cid)); // e.g. chunk big docs\nif (retry.length > 0) {\n  await client.messages.batches.create({ requests: retry });\n}"
+      },
+      "notes": [
+        "Every request gets a unique `custom_id` built from the document id.",
+        "Results are saved by `custom_id`, never by position in the output.",
+        "Each result has a type; only `succeeded` items are saved.",
+        "Only the failed ids are rebuilt with a fix and resubmitted, not the whole batch.",
+        "This is a nightly job, so the up-to-24-hour window is acceptable even though most batches finish within an hour."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Claude Code for Continuous Integration",
+        "title": "Finance wants batch savings on CI jobs",
+        "context": "Your CI runs two Claude jobs: a pre-merge check that developers wait on before merging, and a nightly job that generates tests for about 600 modules. Finance wants the 50% Message Batches saving wherever it is safe. Last night's trial batch had six failures caused by oversized modules.",
+        "question": "Which plan best meets these goals?",
+        "options": [
+          {
+            "text": "Move both jobs to the Message Batches API, since most batches finish well within an hour.",
+            "lang": "yaml",
+            "code": "jobs:\n  pre_merge_check:\n    api: batch      # was: sync\n    blocks_merge: true\n  nightly_tests:\n    api: batch",
+            "trace": [
+              {
+                "who": "user",
+                "text": "09:05 Developer opens PR #91 and waits for the check."
+              },
+              {
+                "who": "app",
+                "text": "Pre-merge request submitted as a batch."
+              },
+              {
+                "who": "system",
+                "text": "Batch queue is busy; status stays \"in_progress\"."
+              },
+              {
+                "who": "user",
+                "text": "14:30 PR is still blocked. Developer pings the platform team."
+              },
+              {
+                "who": "app",
+                "text": "Result arrives at 23:10. Merge happened the next morning."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Saved money; lost a developer day on every slow batch.",
+            "why": "Batch has no latency SLA and can take up to 24 hours. A workflow that blocks a person or a merge must stay synchronous."
+          },
+          {
+            "text": "Batch the nightly job, match results to requests by their position in the output, and rerun the whole batch if any request fails.",
+            "lang": "python",
+            "code": "batch = submit(all_600_requests)\nresults = list(get_results(batch))\nfor req, res in zip(all_600_requests, results):\n    save(req[\"custom_id\"], res)\nif any(r.result.type != \"succeeded\" for r in results):\n    submit(all_600_requests)  # rerun everything",
+            "variants": {
+              "csharp": "var batch = Submit(all600Requests);\nvar results = GetResults(batch).ToList();\nforeach (var (req, res) in all600Requests.Zip(results))\n    Save(req[\"custom_id\"], res);\nif (results.Any(r => r.Result.Type != \"succeeded\"))\n    Submit(all600Requests);  // rerun everything",
+              "typescript": "const batch = submit(all600Requests);\nconst results = Array.from(getResults(batch));\nfor (const [i, req] of all600Requests.entries()) {\n  save(req.custom_id, results[i]);\n}\nif (results.some((r) => r.result.type !== \"succeeded\")) {\n  submit(all600Requests); // rerun everything\n}"
+            },
+            "trace": [
+              {
+                "who": "system",
+                "text": "Batch ends: 594 succeeded, 6 errored."
+              },
+              {
+                "who": "app",
+                "text": "zip() pairs requests and results by position; results came back in a different order."
+              },
+              {
+                "who": "app",
+                "text": "Tests for auth.py saved under payments.py, and so on."
+              },
+              {
+                "who": "app",
+                "text": "Reruns all 600 requests for 6 failures; the 6 still fail unchanged."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Right API, but wrong matching and wasteful retries.",
+            "why": "custom_id is the correlation key, not result order. Only failed items should be resubmitted, and only after a fix such as chunking."
+          },
+          {
+            "text": "Keep pre-merge synchronous, batch the nightly job, and resubmit only failed custom_ids after chunking oversized modules.",
+            "lang": "yaml",
+            "code": "jobs:\n  pre_merge_check:\n    api: sync\n    blocks_merge: true\n  nightly_tests:\n    api: batch\n    key: custom_id   # \"test-<module>\"\n    on_failure: resubmit_failed_only",
+            "trace": [
+              {
+                "who": "user",
+                "text": "09:05 Developer opens PR #91; sync check returns in 40 seconds."
+              },
+              {
+                "who": "app",
+                "text": "22:00 Nightly batch of 600 test-generation requests submitted."
+              },
+              {
+                "who": "system",
+                "text": "03:40 Batch ended: 594 succeeded, 6 errored (oversized modules)."
+              },
+              {
+                "who": "app",
+                "text": "Results matched by custom_id. 6 modules chunked and resubmitted."
+              },
+              {
+                "who": "app",
+                "text": "Nightly cost down by about half; no developer waits."
+              }
+            ],
+            "result": "good",
+            "verdict": "Half price on the nightly job, fast pre-merge feedback.",
+            "why": "Someone waiting means synchronous; work that can wait suits batch. Failures are resubmitted by custom_id with a fix."
+          },
+          {
+            "text": "Keep both jobs synchronous and trim prompts instead, because batch results can take up to 24 hours.",
+            "lang": "yaml",
+            "code": "jobs:\n  pre_merge_check:\n    api: sync\n  nightly_tests:\n    api: sync\n    prompt: prompts/tests-short.md  # trimmed",
+            "trace": [
+              {
+                "who": "app",
+                "text": "22:00 Nightly job sends 600 synchronous requests at full price."
+              },
+              {
+                "who": "app",
+                "text": "Trimmed prompts cut cost by about 15%."
+              },
+              {
+                "who": "user",
+                "text": "Finance asks why the nightly job is not on batch."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Safe, but leaves most of the saving on the table.",
+            "why": "The 24-hour window only rules out batch for blocking work. Nobody waits for the nightly job, so it should take the 50% saving."
+          }
+        ],
+        "answer": 2,
+        "takeaway": "Someone waits → synchronous; it can wait → batch; failures → resubmit by custom_id with a fix."
+      },
+      {
+        "scenario": "Structured Data Extraction",
+        "title": "Huge backfill with an untested prompt",
+        "context": "You must extract key terms from 80,000 archived supplier contracts with the Message Batches API, and results are due in two weeks. The prompt is new and has been tried on only five hand-picked contracts. Last year a similar full run had to be repeated because a prompt flaw affected most records.",
+        "question": "How should the team run this job?",
+        "options": [
+          {
+            "text": "Submit all 80,000 contracts now, then resubmit any failed requests by custom_id with a fix once the batch has ended.",
+            "trace": [
+              {
+                "who": "system",
+                "text": "Batch ends: 79,880 succeeded, 120 errored."
+              },
+              {
+                "who": "app",
+                "text": "120 errored requests chunked and resubmitted by custom_id."
+              },
+              {
+                "who": "user",
+                "text": "Audit: renewal_date holds the signature date on 60% of contracts."
+              },
+              {
+                "who": "app",
+                "text": "Those requests \"succeeded\", so the whole job must be rerun."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Failed items fixed; the prompt flaw ruins the rest.",
+            "why": "Resubmitting by custom_id fixes errored requests, not a prompt flaw in succeeded ones. The untested prompt is the real risk."
+          },
+          {
+            "text": "Run the whole job on the synchronous API so prompt problems show up at once and can be fixed mid-run.",
+            "lang": "bash",
+            "code": "# full price, no batch\npython extract.py --api sync \\\n  --input contracts/ \\\n  --concurrency 20",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Rate limits cap throughput at about 9,000 contracts a day."
+              },
+              {
+                "who": "user",
+                "text": "Prompt flaw spotted on day 2; 18,000 contracts need redoing."
+              },
+              {
+                "who": "app",
+                "text": "Job finishes on day 11 at full price."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Twice the cost, and the flaw was still found late.",
+            "why": "This gives up the 50% saving without testing the prompt first. A small sample finds the flaw before any large run."
+          },
+          {
+            "text": "Split the contracts into ten batches of 8,000 and submit them all at once so the work finishes sooner.",
+            "lang": "bash",
+            "code": "# same untested prompt in every shard\nfor i in $(seq 0 9); do\n  python submit_batch.py --shard $i --of 10\ndone",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Ten batches submitted together."
+              },
+              {
+                "who": "system",
+                "text": "All ten end within 6 hours."
+              },
+              {
+                "who": "user",
+                "text": "Audit: the same renewal_date flaw in every shard."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Faster, and wrong ten times over.",
+            "why": "Right pattern, wrong problem: splitting addresses size and throughput, not prompt quality. Every shard carries the same untested prompt."
+          },
+          {
+            "text": "Run a few hundred varied contracts first, check the results, refine the prompt, then submit the full batch.",
+            "lang": "bash",
+            "code": "# 1. small varied sample first\npython submit_batch.py --sample 300 --stratify vendor,year\n# 2. review results, fix prompt, rerun sample\n# 3. full run once the sample is clean\npython submit_batch.py --all --prompt v3",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Sample of 300 contracts across vendors and years."
+              },
+              {
+                "who": "user",
+                "text": "Review finds renewal_date picks up the signature date."
+              },
+              {
+                "who": "app",
+                "text": "Prompt v3 fixes it; second sample is 98% correct."
+              },
+              {
+                "who": "system",
+                "text": "Full batch runs once, at half price, done in 2 days."
+              }
+            ],
+            "result": "good",
+            "verdict": "One full run, at half price, with a tested prompt.",
+            "why": "Refining the prompt on a sample set before the full batch catches flaws cheaply. The full run then happens once."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "Refine the prompt on a sample before running the full batch."
+      },
+      {
+        "scenario": "Customer Support Resolution Agent",
+        "title": "Overnight refund drafts need two tool lookups",
+        "context": "Every night your team drafts recommended resolutions for about 3,000 unresolved refund tickets, which agents review the next morning. The current agent calls get_customer and then lookup_order for each ticket: always the same two lookups, using IDs already on the ticket. Finance requires the 50% batch saving for this job.",
+        "question": "How should the job be moved to the Message Batches API?",
+        "options": [
+          {
+            "text": "Fetch the customer and order records in your own code first, then send one single-turn batch request per ticket with that data.",
+            "lang": "json",
+            "code": "{\n  \"custom_id\": \"ticket-88213\",\n  \"params\": {\n    \"model\": \"claude-sonnet-5-5\",\n    \"max_tokens\": 1024,\n    \"messages\": [{\"role\": \"user\", \"content\":\n      \"Ticket: ...\\nCustomer: {...}\\nOrder: {...}\\nDraft a resolution.\"}]\n  }\n}",
+            "trace": [
+              {
+                "who": "app",
+                "text": "21:00 Code calls get_customer and lookup_order for 3,000 tickets."
+              },
+              {
+                "who": "app",
+                "text": "Submits 3,000 single-turn requests with the data inline."
+              },
+              {
+                "who": "system",
+                "text": "02:10 Batch ended: 2,996 succeeded, 4 errored."
+              },
+              {
+                "who": "user",
+                "text": "09:00 Agents find drafts on every ticket, matched by custom_id."
+              }
+            ],
+            "result": "good",
+            "verdict": "Half price, every draft ready by morning.",
+            "why": "Batch cannot complete a tool round trip, but these lookups are fixed and known in advance. Doing them in code makes each request single-turn."
+          },
+          {
+            "text": "Submit each ticket as a batch request with the agent's tools attached, so Claude calls get_customer and lookup_order itself.",
+            "lang": "json",
+            "code": "{\n  \"custom_id\": \"ticket-88213\",\n  \"params\": {\n    \"tools\": [get_customer, lookup_order],\n    \"messages\": [{\"role\": \"user\", \"content\": \"Ticket: ...\"}]\n  }\n}",
+            "trace": [
+              {
+                "who": "system",
+                "text": "Batch ended: 3,000 succeeded."
+              },
+              {
+                "who": "app",
+                "text": "Every result stops with stop_reason \"tool_use\": a get_customer call."
+              },
+              {
+                "who": "app",
+                "text": "No tool results can be sent back inside the batch."
+              },
+              {
+                "who": "user",
+                "text": "09:00 Agents find no drafts at all."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Every request stops at its first tool call.",
+            "why": "A batch request can include tools, but it cannot complete a client-side tool round trip. Each further turn would need another batch of up to 24 hours."
+          },
+          {
+            "text": "Keep the agent on the synchronous API overnight, since an agent that calls tools cannot run in a batch.",
+            "trace": [
+              {
+                "who": "app",
+                "text": "Agent runs 3,000 tickets synchronously overnight."
+              },
+              {
+                "who": "user",
+                "text": "Drafts are ready by morning."
+              },
+              {
+                "who": "user",
+                "text": "Finance rejects the bill: no batch saving."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Works, but breaks the cost requirement.",
+            "why": "It misses that the lookups are fixed and can be done in code first. Then each request is single-turn and the saving is available."
+          },
+          {
+            "text": "Submit the agent with tools in 4-hour windows through the night so each batch finishes before agents start at 9 a.m.",
+            "lang": "yaml",
+            "code": "schedule:\n  - submit: \"21:00\"\n  - submit: \"01:00\"\n  - submit: \"05:00\"\nrequest: agent_with_tools",
+            "trace": [
+              {
+                "who": "system",
+                "text": "21:00 batch ends: results stop at stop_reason \"tool_use\"."
+              },
+              {
+                "who": "app",
+                "text": "01:00 batch sends tool results for the first lookup."
+              },
+              {
+                "who": "system",
+                "text": "Results stop again at lookup_order."
+              },
+              {
+                "who": "user",
+                "text": "09:00 Half the tickets still lack a draft."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Well scheduled, still stuck on tool turns.",
+            "why": "Right pattern, wrong problem: submission windows plan around the SLA, but the blocker is the tool round trip. Each turn needs another batch."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Batch cannot finish a tool round trip: prefetch fixed lookups and send single-turn requests."
+      }
+    ],
+    "checks": [
+      {
+        "q": "Why should a pre-merge check not use the Batches API, even though batches often finish quickly?",
+        "a": "Batch has no latency SLA and can take up to 24 hours. A workflow that blocks a person or merge needs the synchronous API."
+      },
+      {
+        "q": "How do you match batch results to their requests?",
+        "a": "By `custom_id`. Results can arrive in any order, so position is not reliable."
+      },
+      {
+        "q": "Six items out of 600 failed because the documents were too large. What do you resubmit?",
+        "a": "Only those six, identified by `custom_id`, after fixing them, for example by chunking the documents."
+      }
+    ],
+    "quiz": [
+      {
+        "q": "Developers wait on a pre-merge Claude check. Finance wants the 50% batch saving because batches usually finish within an hour. What do you advise?",
+        "options": [
+          "Move it to batch, since most batches finish quickly.",
+          "Move it to batch and poll every minute for results.",
+          "Keep it synchronous; batch has no latency guarantee.",
+          "Batch it in the day and run it synchronously at night."
+        ],
+        "answer": 2,
+        "why": "Batch can take up to 24 hours with no latency SLA. A workflow that blocks a person or a merge must stay synchronous."
+      },
+      {
+        "q": "A batch of 600 requests ends with 594 succeeded and 6 errored on oversized files. What next?",
+        "options": [
+          "Resubmit the whole batch so all results line up.",
+          "Resubmit the 6 unchanged, since errors are random.",
+          "Ignore the 6, since 99% success is good enough.",
+          "Chunk the 6 files and resubmit only them by `custom_id`."
+        ],
+        "answer": 3,
+        "why": "Only failed items need resubmitting, identified by `custom_id` and fixed first so they do not fail again."
+      },
+      {
+        "q": "How should you pair batch results with their requests?",
+        "options": [
+          "By position, since results keep submission order.",
+          "By `custom_id`, since results can arrive in any order.",
+          "By timestamp, since results arrive as they finish.",
+          "By hashing the prompt text of each request."
+        ],
+        "answer": 1,
+        "why": "`custom_id` is the correlation key. Result order is not guaranteed."
+      },
+      {
+        "q": "An agent must search, read a page, then search again using the tool results. Is batch suitable?",
+        "options": [
+          "No; a request cannot complete a tool round trip in the batch.",
+          "Yes; batch requests can call tools and continue freely.",
+          "Yes, as long as each request has a unique `custom_id`.",
+          "No; batch requests cannot include tool definitions at all."
+        ],
+        "answer": 0,
+        "why": "Batch requests can include tools, but each turn that needs your tool's result must be a new request or batch, so a multi-turn agent loop does not fit."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "Batches usually finish fast, so they are fine for blocking work.",
+        "fact": "There is no latency SLA. Processing can take up to 24 hours."
+      },
+      {
+        "myth": "Batch requests cannot include tools or conversation history.",
+        "fact": "They can. What they cannot do is complete a tool round trip inside the batch; each turn that needs your tool's result is a new request."
+      },
+      {
+        "myth": "When a few items fail, rerun the batch.",
+        "fact": "Fix and resubmit only the failed items, identified by `custom_id`."
+      }
+    ],
+    "scenario": {
+      "title": "Claude Code for Continuous Integration",
+      "story": "A platform team ran two Claude jobs in CI: a pre-merge code check and a nightly job that generated unit tests for 600 modules. Finance asked them to move both to the Message Batches API for the 50% saving.\n\nThey tried it for a week. The nightly job was fine. The pre-merge check was not. Most batches came back within an hour, but on Wednesday one sat \"in_progress\" from 09:05 until 23:10, and three developers lost a day waiting to merge.\n\nThe team split the work. Pre-merge checks went back to the synchronous API, because a person waits on them. The nightly job stayed on batch, with each request's `custom_id` set to `test-<module>`.\n\nThe next morning the batch reported 594 succeeded and 6 errored, all very large modules. Their first script paired results with requests by position and saved tests under the wrong file names. They rewrote it to key everything by `custom_id`, chunked the six large modules and resubmitted only those. The nightly bill fell by about half."
+    }
+  },
+  {
+    "id": "4.6",
+    "plain": "Claude is better at finding problems in work it did not write. A separate review run, with a fresh context, catches more than asking the same session to check itself. For big changes, review each file on its own and then do one extra pass that looks at how the files fit together.",
+    "analogy": "Authors miss their own typos because they read what they meant to write. A second person reading cold spots them. And an editor checks each chapter, then reads the whole book once for plot holes between chapters.",
+    "sections": [
+      {
+        "h": "What it is",
+        "body": "**Have someone other than the author review the work, and review big changes in focused passes.**\n\nTwo patterns that work together:\n\n- **Multi-instance review.** The **generator** is the Claude session that wrote the code or extraction. The **reviewer** is a separate, **independent instance**: a new session with a fresh context that sees the output and the requirements, but not the generator's reasoning.\n- **Multi-pass review.** A large change is split into **per-file passes** for local bugs, plus one **cross-file integration pass** for problems between files.\n\nBoth reduce missed issues, contradictory findings and **self-confirmation bias**, the tendency to approve your own reasoning. Human teams work the same way: authors do not approve their own pull requests."
+      },
+      {
+        "h": "Why self-review falls short",
+        "body": "**A generator re-reads its own reasoning and tends to agree with it.**\n\nThe session that wrote the code still holds its plan in context, for example \"rename `user_id` everywhere and update callers\". Asked to review, it checks the files against that plan, finds they match, and reports \"no issues\". It does not ask whether the plan missed a caller.\n\nThese do **not** fix it:\n\n- \"Now critically review the code you just wrote.\"\n- Turning on **extended thinking** for the generator. More thinking in the same context is still the same point of view.\n- Passing the generator's reasoning to the reviewer \"so it understands the intent\". That carries the bias across.\n\nWhat fixes it: start a new instance with a fresh `messages` list, give it the diff and the requirements, and ask it to find bugs."
+      },
+      {
+        "h": "Splitting large reviews into passes",
+        "body": "**Per-file passes catch local bugs; a separate integration pass catches what breaks between files.**\n\nOne pass over a 15-file, 4,000-line diff spreads attention thin. Claude may find bugs in the first few files and miss file 14. It can also contradict itself, calling a line correct early on and flagging it later.\n\nA better structure:\n\n1. **Per-file passes.** One focused review per file, looking only for local bugs.\n2. **Integration pass.** One review that looks only at cross-file concerns: renamed fields, changed function signatures, call sites, shared types and config.\n\nDo not drop the integration pass. Per-file passes cannot see that `models.py` renamed a field which `reports/export.py` still reads. That breakage only shows up when you look across files.\n\nFor a small one-file change, a single independent pass is enough."
+      },
+      {
+        "h": "Routing with per-finding confidence",
+        "body": "**Ask the reviewer for a confidence rating on each finding, then send each finding to the right place.**\n\nHuman review time is limited. A **verification pass**, in which the reviewer rates its confidence in each finding, lets you route them:\n\n- **High-confidence** findings post straight to the pull request.\n- **Medium or low** findings go to a human queue for a quick check.\n\nThis is routing, not filtering. Nothing is silently dropped; each finding goes where it can be handled best. It works best when the review criteria are already explicit (lesson 4.1), so a rating means something specific.\n\nWhat goes wrong: using one confidence threshold to hide findings, which loses real bugs; or routing the generator's own self-review, which still carries its bias."
+      }
+    ],
+    "diagram": {
+      "type": "flow",
+      "title": "Independent, multi-pass review",
+      "steps": [
+        {
+          "label": "Generator writes code",
+          "note": "Keeps its own reasoning",
+          "kind": "start"
+        },
+        {
+          "label": "Fresh reviewer instance",
+          "note": "Sees diff and requirements only",
+          "kind": "step"
+        },
+        {
+          "label": "Per-file passes",
+          "note": "Local bugs, one file each",
+          "kind": "step"
+        },
+        {
+          "label": "Integration pass",
+          "note": "Signatures, renamed fields, call sites",
+          "kind": "step"
+        },
+        {
+          "label": "Route by confidence",
+          "note": "High to PR, others to humans",
+          "kind": "good"
+        }
+      ]
+    },
+    "example": {
+      "title": "Worked example: independent per-file and integration passes",
+      "lang": "python",
+      "code": "REVIEW_SYSTEM = \"You review code you did not write. Report bugs only.\"\n\ndef review(prompt):\n    # fresh messages list: no generator history or reasoning\n    return client.messages.create(\n        model=MODEL, max_tokens=4096, system=REVIEW_SYSTEM,\n        messages=[{\"role\": \"user\", \"content\": prompt}],\n    )\n\nfindings = []\nfor f in changed_files:  # pass 1: local issues, one file at a time\n    findings += parse(review(f\"Review {f.path}:\\n{f.diff}\"))\n\nsummary = \"\\n\".join(f\"{f.path}: {f.signature_changes}\" for f in changed_files)\nfindings += parse(review(  # pass 2: cross-file integration\n    \"Check only cross-file issues: callers, signatures, shared types.\\n\"\n    + summary + \"\\n\" + all_call_sites(changed_files)\n))\n\nfor f in findings:  # route by per-finding confidence\n    (post_to_pr if f.confidence == \"high\" else human_queue)(f)",
+      "variants": {
+        "csharp": "const string ReviewSystem = \"You review code you did not write. Report bugs only.\";\n\nTask<Message> Review(string prompt)\n{\n    // fresh messages list: no generator history or reasoning\n    return client.Messages.Create(new MessageCreateParams\n    {\n        Model = Model, MaxTokens = 4096, System = ReviewSystem,\n        Messages = [new() { Role = Role.User, Content = prompt }],\n    });\n}\n\nvar findings = new List<Finding>();\nforeach (var f in changedFiles)  // pass 1: local issues, one file at a time\n    findings.AddRange(Parse(await Review($\"Review {f.Path}:\\n{f.Diff}\")));\n\nvar summary = string.Join(\"\\n\", changedFiles.Select(f => $\"{f.Path}: {f.SignatureChanges}\"));\nfindings.AddRange(Parse(await Review(  // pass 2: cross-file integration\n    \"Check only cross-file issues: callers, signatures, shared types.\\n\"\n    + summary + \"\\n\" + AllCallSites(changedFiles)\n)));\n\nforeach (var f in findings)  // route by per-finding confidence\n    (f.Confidence == \"high\" ? (Action<Finding>)PostToPr : HumanQueue)(f);",
+        "typescript": "const REVIEW_SYSTEM = \"You review code you did not write. Report bugs only.\";\n\nfunction review(prompt: string) {\n  // fresh messages list: no generator history or reasoning\n  return client.messages.create({\n    model: MODEL, max_tokens: 4096, system: REVIEW_SYSTEM,\n    messages: [{ role: \"user\", content: prompt }],\n  });\n}\n\nconst findings = [];\nfor (const f of changedFiles) { // pass 1: local issues, one file at a time\n  findings.push(...parse(await review(`Review ${f.path}:\\n${f.diff}`)));\n}\n\nconst summary = changedFiles.map((f) => `${f.path}: ${f.signatureChanges}`).join(\"\\n\");\nfindings.push(...parse(await review( // pass 2: cross-file integration\n  \"Check only cross-file issues: callers, signatures, shared types.\\n\"\n  + summary + \"\\n\" + allCallSites(changedFiles)\n)));\n\nfor (const f of findings) { // route by per-finding confidence\n  (f.confidence === \"high\" ? postToPr : humanQueue)(f);\n}"
+      },
+      "notes": [
+        "Each `review()` call starts a new messages list, so the reviewer never sees the generator's reasoning.",
+        "Pass 1 runs once per file, so attention is not diluted across the whole change.",
+        "Pass 2 is the integration pass and only looks at cross-file concerns.",
+        "Each finding carries a confidence value used to route it, not to drop it."
+      ]
+    },
+    "labs": [
+      {
+        "scenario": "Claude Code for Continuous Integration",
+        "title": "Reviewing a 15-file refactor before merge",
+        "context": "A Claude Code session in your pipeline has just generated a 15-file refactor that renames user_id to account_id. Before merge you need a review that catches local bugs and also callers in other files that still use the old name.",
+        "question": "Which review setup is most effective?",
+        "options": [
+          {
+            "text": "Ask the same session to critically review all the code it just wrote, with extended thinking switched on.",
+            "lang": "text",
+            "code": "[same conversation, after generation]\nUser: Now critically review all the code you just\nwrote. Think hard and be thorough.\n(extended thinking: on)",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Recalls its plan: \"rename user_id everywhere, update callers\"."
+              },
+              {
+                "who": "claude",
+                "text": "Checks the files against that plan; everything matches the plan."
+              },
+              {
+                "who": "claude",
+                "text": "Reports: \"No issues found. The rename is consistent.\""
+              },
+              {
+                "who": "tool",
+                "text": "CI integration test: reports/export.py still reads user_id; KeyError."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Approves its own work and misses the broken caller.",
+            "why": "The generator keeps its reasoning context and confirms rather than challenges it. Extended thinking in the same context does not remove that bias."
+          },
+          {
+            "text": "Use fresh reviewer instances: one pass per file for local bugs, then a separate pass for cross-file issues.",
+            "lang": "text",
+            "code": "[new session per pass, no generator history]\nPass 1..15: Review <file> for local bugs only.\nPass 16: Check cross-file issues only:\n  every read/write of user_id / account_id,\n  function signatures, shared types.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Passes 1-15: 3 local bugs found, one per file, no contradictions."
+              },
+              {
+                "who": "claude",
+                "text": "Pass 16: reports/export.py:88 still reads row[\"user_id\"]."
+              },
+              {
+                "who": "claude",
+                "text": "Pass 16: cache key in session.py uses old name; confidence: medium."
+              },
+              {
+                "who": "app",
+                "text": "High-confidence findings posted to PR; medium one sent to human queue."
+              },
+              {
+                "who": "user",
+                "text": "Developer fixes all 5 before merge."
+              }
+            ],
+            "result": "good",
+            "verdict": "Catches local bugs and the cross-file breakage.",
+            "why": "An independent instance avoids self-confirmation. Per-file passes plus an integration pass keep attention focused and catch cross-file breakage."
+          },
+          {
+            "text": "Start a fresh reviewer session with no generator history and give it the full 15-file diff in a single pass.",
+            "lang": "text",
+            "code": "[new session, no generator history]\nUser: Review this 15-file diff for bugs.\nReport every issue you find.\n<all 15 diffs pasted, ~4,000 lines>",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Reads the full diff without the generator's reasoning."
+              },
+              {
+                "who": "claude",
+                "text": "Finds 2 local bugs in the first few files."
+              },
+              {
+                "who": "claude",
+                "text": "Says models.py \"correctly renames the field\", later flags the same line as inconsistent."
+              },
+              {
+                "who": "tool",
+                "text": "Missed: reports/export.py, file 14, still reads user_id."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Independent, but attention is diluted and findings contradict.",
+            "why": "Independence removes self-review bias, but one large pass dilutes attention. Trap: right reviewer, wrong scope, so the cross-file caller is missed."
+          },
+          {
+            "text": "Start a fresh reviewer, give it the generator's plan and reasoning for context, and review the change file by file.",
+            "lang": "text",
+            "code": "[new session]\nContext: generator plan: \"rename user_id to\naccount_id everywhere; all callers updated\".\nPass 1..15: review <file> against this plan.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Reads the plan: \"all callers updated\"."
+              },
+              {
+                "who": "claude",
+                "text": "Per-file passes find 2 local bugs."
+              },
+              {
+                "who": "claude",
+                "text": "Takes \"all callers updated\" on trust; no cross-file check."
+              },
+              {
+                "who": "tool",
+                "text": "CI integration test: reports/export.py still reads user_id; KeyError."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Inherits the generator's blind spot.",
+            "why": "Passing the generator's reasoning reintroduces the bias the fresh instance was meant to remove. There is also no cross-file integration pass."
+          }
+        ],
+        "answer": 1,
+        "takeaway": "Independent reviewer, per-file passes, plus a separate cross-file integration pass."
+      },
+      {
+        "scenario": "Structured Data Extraction",
+        "title": "Two pharmacists cannot check 6,000 records",
+        "context": "Your pipeline extracts drug name, dose and frequency from 6,000 handwritten prescription scans a day, and two pharmacists can check about 300 records. They check a random 300, which are almost always correct, while audits show errors cluster in hard-to-read scans. Every record must still flow downstream the same day.",
+        "question": "How should the team choose which records the pharmacists check?",
+        "options": [
+          {
+            "text": "Add a verification pass that reports confidence for each field, and route the lowest-confidence records to the pharmacists.",
+            "lang": "json",
+            "code": "{\n  \"record_id\": \"rx-20931\",\n  \"fields\": {\n    \"drug\": {\"value\": \"amoxicillin\", \"confidence\": \"high\"},\n    \"dose\": {\"value\": \"50mg\", \"confidence\": \"low\",\n             \"note\": \"could be 500mg\"}\n  }\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Verifier re-reads each scan against the extraction, field by field."
+              },
+              {
+                "who": "claude",
+                "text": "rx-20931: dose \"50mg\" low confidence, \"could be 500mg\"."
+              },
+              {
+                "who": "app",
+                "text": "280 low-confidence records go to the pharmacists; the rest flow on."
+              },
+              {
+                "who": "user",
+                "text": "Pharmacists correct 61 errors in a day, up from 3."
+              }
+            ],
+            "result": "good",
+            "verdict": "Reviewer time goes where the errors are.",
+            "why": "A verification pass with per-field confidence enables calibrated routing. Limited reviewer capacity goes to the records most likely to be wrong."
+          },
+          {
+            "text": "Have the extraction call itself add a confidence score to each field, and route low-scoring records for review.",
+            "lang": "json",
+            "code": "\"dose\": {\n  \"value\": \"50mg\",\n  \"confidence\": 0.93   // from the same call\n}",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Reads \"50mg\" on a smudged scan; rates it 0.93."
+              },
+              {
+                "who": "app",
+                "text": "Only 40 records score low; most smudged scans pass."
+              },
+              {
+                "who": "system",
+                "text": "A tenfold dosing error reaches the pharmacy system."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Confident about its own misreads.",
+            "why": "The extractor rates its own readings and under-questions them. A separate verification pass gives more honest confidence."
+          },
+          {
+            "text": "Run every scan through extraction twice and send the pharmacists only the records where the two outputs differ.",
+            "lang": "yaml",
+            "code": "extraction:\n  runs: 2            # same model, same prompt\n  review_if: outputs_differ\n  otherwise: accept",
+            "trace": [
+              {
+                "who": "app",
+                "text": "12,000 extraction calls a day instead of 6,000."
+              },
+              {
+                "who": "claude",
+                "text": "Both runs misread the same smudged \"500\" as \"50\"."
+              },
+              {
+                "who": "app",
+                "text": "Outputs agree, so the error is not routed."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Double the cost; shared misreads slip through.",
+            "why": "Over-engineered, and two identical passes share the same blind spots. Per-field confidence from a verification pass targets doubt directly."
+          },
+          {
+            "text": "Tell the extractor to return null for any field it is not highly confident about, and send those records for review.",
+            "lang": "markdown",
+            "code": "Extract drug, dose and frequency.\nIf you are not highly confident in a field,\nreturn null for it.\n# app: any null -> pharmacist queue",
+            "trace": [
+              {
+                "who": "app",
+                "text": "2,100 records a day now contain a null."
+              },
+              {
+                "who": "user",
+                "text": "Pharmacists can check only 300 of them."
+              },
+              {
+                "who": "system",
+                "text": "Confident misreads are still not null, so they pass unchecked."
+              }
+            ],
+            "result": "bad",
+            "verdict": "Floods the queue and still misses confident errors.",
+            "why": "A confidence instruction does not calibrate the model, and it overloads fixed reviewer capacity. Ranked per-field confidence allows routing within 300."
+          }
+        ],
+        "answer": 0,
+        "takeaway": "Limited reviewer capacity → per-field confidence from a verification pass, then route the lowest."
+      },
+      {
+        "scenario": "Code Generation with Claude Code",
+        "title": "Long session approves its own payment code",
+        "context": "A developer spent two hours in one Claude Code session building a payment-retry module, then asked the same session to review it with extended thinking on. The review found nothing, but staging later showed retries charging some cards twice. The team wants a review step that catches flaws like this before merge.",
+        "question": "What review setup should they adopt?",
+        "options": [
+          {
+            "text": "Keep reviewing in the same session, but run a custom review command with a detailed checklist that includes idempotency.",
+            "lang": "markdown",
+            "code": "# .claude/commands/review.md\nReview the code you wrote in this session.\nCheck: idempotency, retries, error paths,\nlogging, tests.",
+            "trace": [
+              {
+                "who": "user",
+                "text": "Runs /review in the same session."
+              },
+              {
+                "who": "claude",
+                "text": "\"Idempotency: handled, as planned, by the retry counter.\""
+              },
+              {
+                "who": "app",
+                "text": "Staging: duplicate charges still happen on timeouts."
+              }
+            ],
+            "result": "bad",
+            "verdict": "A better checklist, ticked off by the author.",
+            "why": "The checklist runs in the generator's context, so it confirms the original reasoning. Right pattern, wrong instance."
+          },
+          {
+            "text": "Raise the thinking budget in the same session and ask it to challenge each design decision it made.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Thinks at length about each decision."
+              },
+              {
+                "who": "claude",
+                "text": "Concludes each decision was reasonable given the plan."
+              },
+              {
+                "who": "app",
+                "text": "Double-charge bug remains."
+              }
+            ],
+            "result": "bad",
+            "verdict": "More thinking, same blind spot.",
+            "why": "Extended thinking in the same context does not remove self-review bias. An independent instance does."
+          },
+          {
+            "text": "Start a new session and paste in the whole earlier conversation so the reviewer fully understands the intent.",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Reads the two-hour conversation, including \"timeouts are safe to retry\"."
+              },
+              {
+                "who": "claude",
+                "text": "Accepts that reasoning and approves the module."
+              },
+              {
+                "who": "app",
+                "text": "Double-charge bug remains."
+              }
+            ],
+            "result": "bad",
+            "verdict": "A fresh session with the old bias pasted in.",
+            "why": "Giving the reviewer the generator's reasoning reintroduces the bias a fresh instance removes. The reviewer should judge the code, not the story."
+          },
+          {
+            "text": "Review in a new session that sees only the diff and the requirements, not the conversation that produced the code.",
+            "lang": "bash",
+            "code": "git diff main...feature/payment-retry > retry.diff\nclaude -p \"Review retry.diff against\n  docs/payment-retry.md. Check that a retry\n  can never charge a card twice.\" \\\n  --allowedTools \"Read,Grep\"",
+            "trace": [
+              {
+                "who": "claude",
+                "text": "Reads the diff and the requirements with no history."
+              },
+              {
+                "who": "claude",
+                "text": "Notes that a timeout retry resends the charge with no idempotency key."
+              },
+              {
+                "who": "app",
+                "text": "Finding posted: \"possible double charge on timeout\"."
+              },
+              {
+                "who": "user",
+                "text": "Developer adds an idempotency key before merge."
+              }
+            ],
+            "result": "good",
+            "verdict": "The double-charge flaw is caught before merge.",
+            "why": "An independent instance does not carry the generator's reasoning, so it questions decisions the author took for granted. That beats self-review or extra thinking."
+          }
+        ],
+        "answer": 3,
+        "takeaway": "Reviewing generated code → an independent instance without the generator's context."
+      }
+    ],
+    "checks": [
+      {
+        "q": "Why is asking the generating session to review its own code weak?",
+        "a": "It keeps the reasoning that produced the code and tends to confirm it. An independent instance with a fresh context reviews more critically."
+      },
+      {
+        "q": "Should you give the reviewer the generator's reasoning so it understands the intent?",
+        "a": "No. That reintroduces the bias the independent reviewer is meant to remove. Give it the output and the requirements."
+      },
+      {
+        "q": "What does the cross-file integration pass catch that per-file passes miss?",
+        "a": "Breakage between files, such as a renamed field or changed signature that a caller in another file still uses the old way."
+      }
+    ],
+    "quiz": [
+      {
+        "q": "Claude has just generated a refactor. What gives the most reliable review?",
+        "options": [
+          "Ask the same session to critically review its work.",
+          "Start an independent instance with a fresh context.",
+          "Enable extended thinking for the generating session.",
+          "Ask the same session to review it twice in a row."
+        ],
+        "answer": 1,
+        "why": "The generator keeps its reasoning and confirms it. An independent instance reviews without that bias."
+      },
+      {
+        "q": "A reviewer must check a 15-file change. Which setup best avoids missed and contradictory findings?",
+        "options": [
+          "Per-file passes plus a separate cross-file integration pass.",
+          "One pass over the whole diff with a larger context window.",
+          "Per-file passes only, since each file gets full attention.",
+          "One pass over the whole diff, repeated three times."
+        ],
+        "answer": 0,
+        "why": "Per-file passes keep attention focused, and the integration pass catches cross-file breakage that per-file passes cannot see."
+      },
+      {
+        "q": "A colleague suggests giving the reviewer the generator's reasoning so it understands the intent. Why is that a poor idea?",
+        "options": [
+          "It makes the reviewer's prompt too long to process.",
+          "The reviewer cannot read another session's reasoning.",
+          "It forces the reviewer to use extended thinking.",
+          "It brings back the bias the reviewer should avoid."
+        ],
+        "answer": 3,
+        "why": "The reviewer is independent precisely because it lacks the generator's reasoning. Give it the output and the requirements instead."
+      },
+      {
+        "q": "Human reviewers can only check a few findings per pull request. What helps most?",
+        "options": [
+          "Drop every finding below a single confidence threshold.",
+          "Have the generator rank its own findings by importance.",
+          "Have the reviewer rate confidence per finding and route.",
+          "Post every finding and let developers sort them out."
+        ],
+        "answer": 2,
+        "why": "Per-finding confidence from a verification pass enables calibrated routing: high-confidence to the PR, the rest to a human queue."
+      }
+    ],
+    "misconceptions": [
+      {
+        "myth": "Extended thinking lets the generator review its own work fairly.",
+        "fact": "More thinking in the same context keeps the same bias. Use an independent instance."
+      },
+      {
+        "myth": "The reviewer needs the generator's reasoning to understand the intent.",
+        "fact": "Give it the output and the requirements. The reasoning carries the bias across."
+      },
+      {
+        "myth": "Per-file passes cover everything.",
+        "fact": "They miss cross-file breakage such as a renamed field. Add an integration pass."
+      }
+    ],
+    "scenario": {
+      "title": "Claude Code for Continuous Integration",
+      "story": "A team used Claude Code to rename `user_id` to `account_id` across a 15-file service. Before merging, the developer typed into the same session: \"Now critically review everything you just wrote. Think hard.\" Claude checked each file against its own plan and reported no issues.\n\nCI disagreed. An integration test failed with a `KeyError`: `reports/export.py` still read `row[\"user_id\"]`.\n\nThe developer tried again with a fresh session and pasted all 15 diffs, about 4,000 lines. This reviewer found two local bugs but missed the export file, and described one line in `models.py` as both correct and inconsistent.\n\nThe team then set up their CI review properly. A new reviewer instance, with no generator history, runs one pass per changed file for local bugs. A final integration pass looks only at renamed fields, signatures and call sites. Each finding carries a confidence rating: high ones post to the pull request, the rest go to a human queue. On the next refactor, the integration pass flagged a stale field before anyone merged."
+    }
+  }
+]

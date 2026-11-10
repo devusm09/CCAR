@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'" />
+  <title>Claude Cert Coach</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="logo" src="../assets/icon.svg" alt="" width="22" height="22" />
+      <span>Claude Cert Coach</span>
+    </div>
+    <span id="modelBadge" class="badge" title="Model in use"></span>
+  </header>
+
+  <div class="shell">
+  <nav id="nav" class="rail" aria-label="App">
+    <button data-go="home" title="Train"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span>Train</span></button>
+    <button data-go="learn" title="Learn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H11c.6 0 1 .4 1 1v15c0-.6-.4-1-1-1H5.5c-.8 0-1.5-.7-1.5-1.5v-12Z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13c-.6 0-1 .4-1 1v15c0-.6.4-1 1-1h5.5c.8 0 1.5-.7 1.5-1.5v-12Z"/></svg><span>Learn</span></button>
+    <button data-go="browse" title="Question bank"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6"/><path d="M5 12v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-6"/></svg><span>Bank</span></button>
+    <button data-go="chat" id="navSession" title="Current session" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 4h13c.8 0 1.5.7 1.5 1.5v9c0 .8-.7 1.5-1.5 1.5H10l-4.5 4v-4h0c-.8 0-1.5-.7-1.5-1.5v-9C4 4.7 4.7 4 5.5 4Z"/><path d="M8 9h8M8 12h5"/></svg><span>Session</span><i class="live-dot"></i></button>
+    <button data-go="exam" id="navExam" title="Exam in progress" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 3.5V5h6V3.5M8.5 10h7M8.5 13.5h7M8.5 17h4"/></svg><span>Exam</span><i class="live-dot"></i></button>
+    <button data-go="history" title="Progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><rect x="5.5" y="11" width="3" height="6" rx="1"/><rect x="10.5" y="6" width="3" height="11" rx="1"/><rect x="15.5" y="9" width="3" height="8" rx="1"/></svg><span>Progress</span></button>
+    <span class="rail-spacer"></span>
+    <button data-go="settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg><span>Settings</span></button>
+  </nav>
+
+  <main>
+    <!-- SETUP / SETTINGS -->
+    <section id="screen-settings" class="screen">
+      <div class="panel narrow">
+        <h1 id="settingsTitle">Settings</h1>
+        <p id="settingsIntro" class="muted"></p>
+
+        <label class="field">
+          <span>Anthropic API key</span>
+          <div class="row">
+            <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+            <button id="loadModels" class="secondary">Load models</button>
+          </div>
+          <small id="keyHint" class="muted"></small>
+        </label>
+
+        <label class="field">
+          <span>Model</span>
+          <select id="modelSelect" disabled>
+            <option value="">Load models first</option>
+          </select>
+          <small class="muted">
+            <b>Opus</b> — recommended. Best at following the long exam rule set and writing tricky-but-fair distractors.
+            <b>Sonnet</b> — faster and cheaper; good for daily drills.
+            <b>Haiku</b> — not recommended for question generation.
+          </small>
+        </label>
+
+        <label class="field">
+          <span>Appearance</span>
+          <select id="themeSelect">
+            <option value="light">Light — default</option>
+            <option value="dark">Dark</option>
+            <option value="system">Match Windows / macOS</option>
+          </select>
+          <small class="muted">Applies immediately. No API key needed.</small>
+        </label>
+
+        <details class="more">
+        <summary>Advanced</summary>
+        <div class="grid2">
+          <label class="field">
+            <span>Quality vs. cost</span>
+            <select id="thinkingSelect">
+              <option value="default">Medium — recommended</option>
+              <option value="on">High — best questions, costs most</option>
+              <option value="off">Low — cheapest and fastest</option>
+            </select>
+            <small class="muted">Sets how much Claude thinks before writing. <b>Medium</b> is the model's default and a good balance. <b>High</b> gives slightly trickier, more reliable questions but uses more output tokens. <b>Low</b> is cheapest, fine for quick drills.</small>
+          </label>
+          <label class="field">
+            <span>Max output tokens per turn</span>
+            <input id="maxTokens" type="number" min="2048" max="64000" step="1024" />
+          </label>
+        </div>
+
+        <div class="grid2">
+          <label class="field">
+            <span>Input price ($ / million tokens)</span>
+            <input id="priceIn" type="number" min="0" step="0.01" />
+          </label>
+          <label class="field">
+            <span>Output price ($ / million tokens)</span>
+            <input id="priceOut" type="number" min="0" step="0.01" />
+          </label>
+        </div>
+        <small class="muted">Used only for the cost estimate. Prefilled by model family — check your Anthropic Console for current prices.</small>
+        </details>
+
+        <div class="row end">
+          <button id="clearKey" class="ghost danger">Remove saved key</button>
+          <button id="saveSettings" class="primary">Save</button>
+        </div>
+        <p id="settingsMsg" class="msg"></p>
+        <div class="danger-zone">
+          <div><b>Reset progress</b><div class="muted small">Deletes all session results and the question log, and clears curriculum progress (lessons read, quiz and lab scores, drill cards): readiness, level, weak areas and time stats start over. Your exam date and settings are kept.</div></div>
+          <button id="resetProgress" class="ghost danger">Reset history</button>
+        </div>
+        <p class="muted small">Your key is stored only on this computer, encrypted with your OS keychain where available, and is sent only to api.anthropic.com.</p>
+      </div>
+    </section>
+
+    <!-- HOME -->
+    <section id="screen-home" class="screen">
+      <div class="home">
+        <div id="examBanner" class="banner exam-banner" hidden>
+          <div><b>Exam simulation in progress</b> <span id="examBannerText" class="muted"></span></div>
+          <div class="row">
+            <button id="examDiscard" class="ghost">Discard</button>
+            <button id="examResume" class="primary">Resume exam</button>
+          </div>
+        </div>
+        <div id="srsBanner" class="srs-card" hidden>
+          <span class="h-ico t-berry">↻</span>
+          <div class="srs-text"><b id="srsTitle"></b><span id="srsSub" class="small muted"></span></div>
+          <button id="srsStart" class="primary">Review now →</button>
+        </div>
+        <div id="resumeBanner" class="banner" hidden>
+          <div><b id="resumeLabel">Unfinished session</b> <span id="resumeText" class="muted"></span></div>
+          <div class="row">
+            <button id="discardBtn" class="ghost">Discard</button>
+            <button id="resumeBtn" class="primary">Resume</button>
+          </div>
+        </div>
+
+        <div class="hero">
+          <div>
+            <div class="eyebrow">Claude Certified Architect – Foundations</div>
+            <h1>Exam training</h1>
+            <p class="muted">Scenario questions harder than the real exam. Every answer is scored and your weak areas are tracked.</p>
+          </div>
+          <div class="hero-stats">
+            <div class="stat"><span class="stat-ico t-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/></svg></span><div class="stat-txt"><b id="statAnswered">0</b><span class="muted small">questions answered</span></div></div>
+            <div class="stat"><span class="stat-ico t-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span><div class="stat-txt"><b id="statAccuracy">—</b><span class="muted small">accuracy</span></div></div>
+            <div class="stat"><span class="stat-ico t-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/></svg></span><div class="stat-txt"><b id="statSessions">0</b><span class="muted small">sessions finished</span></div></div>
+            <div class="stat"><span class="stat-ico t-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span><div class="stat-txt"><b id="statTime">—</b><span class="muted small">time trained</span></div></div>
+            <div class="stat"><span class="stat-ico t-berry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1.1 0-2-.4-2.5-1.2M12 6.5V8m0 8v1.5"/></svg></span><div class="stat-txt"><b id="statSpend">—</b><span class="muted small">spent on training</span></div></div>
+          </div>
+        </div>
+
+        <div id="readyCard" class="card ready-card"></div>
+
+        <div class="home-grid">
+          <article class="card train">
+            <h2 class="card-h"><span class="h-ico t-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M16 5v4M4 12h4M12 12h8M10 10v4M4 17h10M18 17h2M16 15v4"/></svg></span>Build your own session</h2>
+
+            <div class="choices compact source" data-group="source">
+              <button class="choice sel" data-value="bank"><b>⚡ Question bank</b><span id="sourceBankText">Instant, offline, no API cost</span></button>
+              <button class="choice" data-value="live"><b>✨ Live with Claude</b><span id="sourceLiveText">Fresh questions, uses the API</span></button>
+            </div>
+
+            <div class="step">
+              <div class="step-label"><span class="num">1</span> Session type</div>
+              <div class="choices" data-group="length">
+                <button class="choice sel" data-value="5"><b>Quick drill</b><span>5 questions, feedback after each</span></button>
+                <button class="choice" data-value="10"><b>Quiz</b><span>10 questions, scored summary</span></button>
+                <button class="choice" data-value="mock"><b>Mock exam</b><span>20 in exam format, scored at end</span></button>
+                <button class="choice" data-value="all" id="lenAll"><b>Practice all</b><span>Every matching bank question</span></button>
+                <button class="choice" data-value="exam" id="lenExam"><b>Exam simulation</b><span>60 questions · 120 min · real format</span></button>
+              </div>
+            </div>
+
+            <div class="step" id="stepFocus">
+              <div class="step-label"><span class="num">2</span> What to train</div>
+              <div class="choices" data-group="focus">
+                <button class="choice sel" data-value="all"><b>All domains</b><span>Weighted like the exam</span></button>
+                <button class="choice" data-value="domain"><b>One domain</b><span>Pick a domain</span></button>
+                <button class="choice" data-value="scenario"><b>One scenario</b><span>Pick a scenario</span></button>
+                <button class="choice" data-value="weak" id="focusWeak"><b>Weak areas</b><span id="weakText">Unlocks after a few answers</span></button>
+                <button class="choice" data-value="missed" id="focusMissed"><b>Review mistakes</b><span id="missedText">Nothing to retry yet</span></button>
+              </div>
+              <select id="domainSel" hidden>
+                <option value="1">Domain 1 — Agentic Architecture &amp; Orchestration (27%)</option>
+                <option value="2">Domain 2 — Tool Design &amp; MCP Integration (18%)</option>
+                <option value="3">Domain 3 — Claude Code Configuration &amp; Workflows (20%)</option>
+                <option value="4">Domain 4 — Prompt Engineering &amp; Structured Output (20%)</option>
+                <option value="5">Domain 5 — Context Management &amp; Reliability (15%)</option>
+              </select>
+              <select id="scenarioSel" hidden>
+                <option>Customer Support Resolution Agent</option>
+                <option>Code Generation with Claude Code</option>
+                <option>Multi-Agent Research System</option>
+                <option>Developer Productivity with Claude</option>
+                <option>Claude Code for Continuous Integration</option>
+                <option>Structured Data Extraction</option>
+              </select>
+            </div>
+
+            <div class="step" id="stepLevel">
+              <div class="step-label"><span class="num">3</span> Difficulty</div>
+              <div class="choices compact" data-group="level">
+                <button class="choice sel" data-value="adaptive"><b>Adaptive</b><span id="adaptiveText">Matches your level</span></button>
+                <button class="choice" data-value="Exam-level"><b>Exam-level</b><span>Same as the real exam</span></button>
+                <button class="choice" data-value="Expert"><b>Expert</b><span>Harder</span></button>
+                <button class="choice" data-value="Diabolical"><b>Diabolical</b><span>Hardest</span></button>
+              </div>
+            </div>
+            <p id="mockNote" class="note" hidden>A mock exam copies the real exam: 4 random scenarios, the official domain split, Exam-level and Expert questions only, and no feedback until the end.</p>
+
+            <div class="start-row">
+              <span id="planSummary" class="muted"></span>
+              <button id="startTraining" class="primary big">Start training →</button>
+            </div>
+
+            <details class="more">
+              <summary>More options</summary>
+              <div class="attach">
+                <span class="small"><b>Official exam guide</b> <span class="muted">(usually not needed: the full exam outline is already built in. A PDF adds tokens to every request.)</span></span>
+                <button id="attachPractice" class="ghost">+ Attach CCA-F guide (PDF / MD / TXT)</button>
+                <ul id="practiceFiles" class="files"></ul>
+              </div>
+              <label class="check"><input type="checkbox" id="staticList" /> Show all questions as a printable list (no buttons, answer key at the end)</label>
+              <div class="row">
+                <input id="customPractice" placeholder="Or write your own request, e.g. “10 questions, Domain 4, Expert only”" />
+                <button id="startCustom" class="secondary">Start</button>
+              </div>
+            </details>
+          </article>
+
+          <aside class="side">
+            <article class="card" id="bankCard">
+              <h2 class="card-h"><span class="h-ico t-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6"/><path d="M5 12v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-6"/></svg></span>Question bank</h2>
+              <div id="bankStatus" class="small"></div>
+              <div id="bankJobs"></div>
+              <p id="genLocked" class="muted small" hidden>Want more questions? Add an API key in Settings to generate new ones with the Batch API, or <b>Import</b> a bank file a teammate exported.</p>
+              <details class="more" id="genBox" hidden>
+                <summary class="gen-summary">＋ Generate questions</summary>
+                <div class="gen-grid">
+                  <label class="small">How many
+                    <select id="genCount">
+                      <option value="10">10 questions</option>
+                      <option value="25" selected>25 questions</option>
+                      <option value="50">50 questions</option>
+                      <option value="100">100 questions</option>
+                    </select>
+                  </label>
+                  <label class="small">Focus
+                    <select id="genFocus"></select>
+                  </label>
+                  <label class="small">Difficulty
+                    <select id="genLevel">
+                      <option value="balanced">Balanced mix (recommended)</option>
+                      <option value="adaptive">Match my current level</option>
+                      <option value="Exam-level">Exam-level only</option>
+                      <option value="Expert">Expert only</option>
+                      <option value="Diabolical">Diabolical only</option>
+                    </select>
+                  </label>
+                </div>
+                <div id="genEstimate" class="small muted"></div>
+                <button id="genStart" class="secondary">Generate with Batch API</button>
+                <p class="muted tiny">The Batch API costs 50% less. Results usually arrive within an hour (24 hours at most). The app imports them automatically while it's open.</p>
+              </details>
+              <div class="row wrap bank-actions">
+                <button id="bankExport" class="ghost small-btn" title="Save every question to a file you can share">Export</button>
+                <button id="bankImport" class="ghost small-btn" title="Add questions from a shared bank file">Import</button>
+                <button id="bankDelete" class="ghost danger small-btn" hidden>Delete generated questions</button>
+              </div>
+            </article>
+
+            <article class="card">
+              <h2 class="card-h"><span class="h-ico t-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><rect x="5.5" y="11" width="3" height="6" rx="1"/><rect x="10.5" y="6" width="3" height="11" rx="1"/><rect x="15.5" y="9" width="3" height="8" rx="1"/></svg></span>Readiness by domain</h2>
+              <p class="muted small">Click a domain to train it.</p>
+              <div id="readiness" class="readiness"></div>
+              <button id="startWeak" class="secondary" disabled>Train my weak areas</button>
+            </article>
+
+            <article class="card">
+              <h2 class="card-h"><span class="h-ico t-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M17 4v16"/><path d="M4 8h6M14 16h6"/><path d="m4 8 3-3 3 3M14 16l3 3 3-3"/></svg></span>Which certification first?</h2>
+              <p class="muted small">Attach two or more official exam guides. You get a side-by-side comparison, a short diagnostic test and a recommendation.</p>
+              <div class="attach">
+                <button id="attachFit" class="ghost">+ Attach exam guides</button>
+                <ul id="fitFiles" class="files"></ul>
+              </div>
+              <button id="startFit" class="secondary" disabled>Start evaluation</button>
+            </article>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- LEARN -->
+    <section id="screen-learn" class="screen learn-screen">
+      <nav id="learnNav" class="learn-nav" aria-label="Lessons"></nav>
+      <div id="learnMain" class="learn-main"></div>
+    </section>
+
+    <!-- QUESTION BANK BROWSER -->
+    <section id="screen-browse" class="screen">
+      <div class="panel browse">
+        <div id="browseHead"></div>
+        <div id="browseList"></div>
+      </div>
+    </section>
+
+    <!-- EXAM SIMULATION -->
+    <section id="screen-exam" class="screen exam-screen">
+      <div id="examHead" class="exam-head"></div>
+      <div id="examBody" class="exam-body"></div>
+    </section>
+
+    <!-- CHAT -->
+    <section id="screen-chat" class="screen chat-screen">
+      <div class="chat-head">
+        <div>
+          <b id="chatTitle"></b>
+          <span id="costChip" class="cost-chip">≈ $0.000</span>
+          <span id="timer" class="timer"></span>
+          <span id="usage" class="muted small"></span>
+        </div>
+        <div class="row">
+          <button id="stopBtn" class="ghost" hidden>Stop</button>
+          <button id="endChat" class="ghost">End session</button>
+        </div>
+      </div>
+      <div id="sessionBar" class="session-bar" hidden><i></i></div>
+      <div id="log" class="log"></div>
+      <form id="composer" class="composer">
+        <input id="input" placeholder="Click an answer above, or type a letter or a question" autocomplete="off" />
+        <button class="primary" type="submit">Send</button>
+      </form>
+    </section>
+
+    <!-- HISTORY -->
+    <section id="screen-history" class="screen">
+      <div class="panel">
+        <div class="row between">
+          <h1>Progress</h1>
+          <button id="clearHistory" class="ghost danger">Reset history</button>
+        </div>
+        <div id="overview"></div>
+        <div id="insights"></div>
+        <div id="usageBox"></div>
+        <h2 class="section">Sessions</h2>
+        <div id="historyList"></div>
+      </div>
+    </section>
+  </main>
+  </div>
+
+  <script src="../../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../../node_modules/dompurify/dist/purify.js"></script>
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+  <script src="bank.js"></script>
+  <script src="learn.js"></script>
+  <script src="guide.js"></script>
+  <script src="exam.js"></script>
+  <script src="insights.js"></script>
+  <script src="browse.js"></script>
+</body>
+</html>

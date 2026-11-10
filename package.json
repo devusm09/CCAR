@@ -1,0 +1,54 @@
+{
+  "name": "claude-cert-coach",
+  "productName": "Claude Cert Coach",
+  "version": "1.0.0",
+  "description": "Desktop app for CCA-F practice questions and certification fit evaluation, powered by the Claude API.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
+  },
+  "author": "Pumex",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.134.0",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1"
+  },
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.pumex.claudecertcoach",
+    "productName": "Claude Cert Coach",
+    "files": [
+      "src/**/*",
+      "prompts/**/*",
+      "package.json",
+      "data/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    },
+    "directories": {
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
+  }
+}

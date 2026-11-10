@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -i 's|^.dom-row .bar { grid-column: 1 / -1; }|.dom-row .bar { display: block; grid-column: 1 / -1; }|' src/renderer/styles.css)",
+      "Bash(node --check src/renderer/app.js)",
+      "Bash(grep -n \"startDomain\\\\|startScenario\\\\|data-start\\\\|refreshWeak\" src/renderer/*.js src/renderer/*.html)"
+    ]
+  }
+}
